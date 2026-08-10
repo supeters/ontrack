@@ -55,8 +55,10 @@ export default function MainLayout() {
 
     try {
       setLoading(true);
+      console.log('Loading courses for kid:', selectedKid.name, 'school year:', selectedSchoolYear);
       const response = await fetch(`/api/courses?kidId=${selectedKid.id}&schoolYear=${selectedSchoolYear}`);
       const data = await response.json();
+      console.log('Courses loaded:', data);
       setCourses(data || []);
       setLoading(false);
     } catch (error) {

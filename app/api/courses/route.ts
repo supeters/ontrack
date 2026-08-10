@@ -39,6 +39,14 @@ export async function GET(request: NextRequest) {
       throw error;
     }
 
+    console.log(`Found ${data?.length || 0} total courses for kid ${kidId}`);
+    if (data && data.length > 0) {
+      console.log('Courses:', data.map((c: any) => ({
+        name: c.course_name,
+        year: c.school_calendars?.school_year_name
+      })));
+    }
+
     // Filter by school year if provided
     let filteredData = data || [];
     if (schoolYear) {
@@ -49,6 +57,8 @@ export async function GET(request: NextRequest) {
         return courseYear === schoolYear;
       });
     }
+
+    console.log(`After filtering: ${filteredData.length} courses`);
 
     // Format response
     const formattedCourses = filteredData.map((course: any) => ({

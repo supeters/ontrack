@@ -69,41 +69,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const loadKids = async (userId: string) => {
-    // First, find the parent kid record for this user
-    const { data: parentKid, error: parentError } = await supabase
+    // First, find the kid record for this user
+    const { data: userKid, error: userKidError } = await supabase
       .from('kids')
-      .select('id')
+      .select('id, name, user_id')
       .eq('user_id', userId)
       .single();
 
-    if (parentError) {
-      console.error('Error loading parent kid:', parentError);
+    if (userKidError) {
+      console.error('Error loading user kid:', userKidError);
       return;
     }
 
-    if (!parentKid) {
-      console.log('No parent kid found for user');
+    if (!userKid) {
+      console.log('No kid found for user');
       return;
     }
 
-    // Now get all kids related to this parent
+    // If this user IS a kid (student), show themselves
+    // Otherwise, get all kids related to this parent
     const { data: relations, error: relationsError } = await supabase
       .from('kid_relations')
       .select('kid_id, kids!kid_relations_kid_id_fkey(*)')
-      .eq('parent_id', parentKid.id);
+      .eq('parent_id', userKid.id);
 
     if (relationsError) {
       console.error('Error loading kid relations:', relationsError);
-      return;
     }
 
-    if (relations) {
-      const kidsList = relations.map((r: any) => r.kids).filter((k: any) => k !== null);
-      console.log('Loaded kids:', kidsList);
-      setKids(kidsList);
-      if (kidsList.length === 1) {
-        setSelectedKid(kidsList[0]);
-      }
+    let kidsList: Kid[] = [];
+
+    if (relations && relations.length > 0) {
+      // User is a parent - show their children
+      kidsList = relations.map((r: any) => r.kids).filter((k: any) => k !== null);
+    } else {
+      // User is a student - show themselves
+      kidsList = [userKid];
+    }
+
+    console.log('Loaded kids:', kidsList);
+    setKids(kidsList);
+    if (kidsList.length === 1) {
+      setSelectedKid(kidsList[0]);
     }
   };
 
