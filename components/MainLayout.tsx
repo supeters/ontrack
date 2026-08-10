@@ -22,15 +22,38 @@ export default function MainLayout() {
   const { theme, currentTheme, changeTheme } = useTheme();
   const [selectedView, setSelectedView] = useState<'agenda' | 'planner' | 'courses' | 'settings'>('agenda');
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
-  const [selectedSchoolYear, setSelectedSchoolYear] = useState('2025-26');
+  const [selectedSchoolYear, setSelectedSchoolYear] = useState<string>('');
   const [showKidDropdown, setShowKidDropdown] = useState(false);
   const [showYearDropdown, setShowYearDropdown] = useState(false);
   const [showThemeDropdown, setShowThemeDropdown] = useState(false);
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(false);
   const [coursesExpanded, setCoursesExpanded] = useState(true);
+  const [schoolYears, setSchoolYears] = useState<any[]>([]);
 
-  const schoolYears = ['2024-25', '2025-26', '2026-27'];
+  // Load school years on mount
+  useEffect(() => {
+    loadSchoolYears();
+  }, []);
+
+  const loadSchoolYears = async () => {
+    try {
+      const response = await fetch('/api/school-years');
+      const data = await response.json();
+      setSchoolYears(data || []);
+
+      // Find and set the current school year
+      const currentYear = data?.find((y: any) => y.is_current);
+      if (currentYear) {
+        setSelectedSchoolYear(currentYear.name);
+      } else if (data && data.length > 0) {
+        // Fallback to first year if no current year set
+        setSelectedSchoolYear(data[0].name);
+      }
+    } catch (error) {
+      console.error('Error loading school years:', error);
+    }
+  };
 
   // Load courses when selectedKid or selectedSchoolYear changes
   useEffect(() => {
@@ -137,16 +160,17 @@ export default function MainLayout() {
                 <div className={`absolute right-0 mt-2 w-32 ${c.cardBg} rounded-lg shadow-lg border ${c.divider} py-1 z-20`}>
                   {schoolYears.map((year) => (
                     <button
-                      key={year}
+                      key={year.name}
                       onClick={() => {
-                        setSelectedSchoolYear(year);
+                        setSelectedSchoolYear(year.name);
                         setShowYearDropdown(false);
                       }}
                       className={`w-full text-left px-3 py-2 text-sm ${c.activityHover.replace('border-transparent', '')} ${
-                        selectedSchoolYear === year ? `${c.workgroupBg} ${c.moduleText} font-medium` : c.activityText
+                        selectedSchoolYear === year.name ? `${c.workgroupBg} ${c.moduleText} font-medium` : c.activityText
                       }`}
                     >
-                      {year}
+                      {year.name}
+                      {year.is_current && <span className={`ml-2 text-xs ${c.mutedText}`}>•</span>}
                     </button>
                   ))}
                 </div>

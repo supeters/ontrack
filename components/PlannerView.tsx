@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Calendar, ChevronLeft, ChevronRight, Clock, CheckCircle2, Eye } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import ActivityModal from './ActivityModal';
+import { formatDateLocal } from '@/lib/datetime';
 
 interface PlannerViewProps {
   kidId: number;
@@ -67,8 +68,8 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
       const endDate = new Date(currentWeekStart);
       endDate.setDate(endDate.getDate() + 6);
 
-      const startDateStr = startDate.toISOString().split('T')[0];
-      const endDateStr = endDate.toISOString().split('T')[0];
+      const startDateStr = formatDateLocal(startDate);
+      const endDateStr = formatDateLocal(endDate);
 
       // Fetch planner data from API
       const response = await fetch(
@@ -89,7 +90,7 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
   const dailyTotals = useMemo(() => {
     const totals: Record<string, number> = {};
     weekDates.forEach(date => {
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = formatDateLocal(date);
       const dayActivities = activities.filter(a => a.plan_date?.split('T')[0] === dateStr);
       totals[dateStr] = dayActivities.reduce((sum, a) => sum + (a.estimated_minutes || 0), 0);
     });
@@ -113,7 +114,7 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
     courses.forEach(course => {
       grouped[course.id] = {};
       weekDates.forEach(date => {
-        const dateStr = date.toISOString().split('T')[0];
+        const dateStr = formatDateLocal(date);
         grouped[course.id][dateStr] = [];
       });
     });
@@ -121,7 +122,7 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
     // Add "No Course" group
     grouped['no-course'] = {};
     weekDates.forEach(date => {
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = formatDateLocal(date);
       grouped['no-course'][dateStr] = [];
     });
 
@@ -216,7 +217,7 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
   const handleDrop = async (targetDate: Date) => {
     if (!draggedActivity) return;
 
-    const newPlanDate = targetDate.toISOString().split('T')[0];
+    const newPlanDate = formatDateLocal(targetDate);
 
     try {
       await fetch('/api/activities', {
@@ -374,7 +375,7 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
                   Course
                 </th>
                 {weekDates.map((date, index) => {
-                  const dateStr = date.toISOString().split('T')[0];
+                  const dateStr = formatDateLocal(date);
                   const dayTotal = dailyTotals[dateStr] || 0;
                   return (
                     <th
@@ -416,7 +417,7 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
                       )}
                     </td>
                     {weekDates.map((date, dateIndex) => {
-                      const dateStr = date.toISOString().split('T')[0];
+                      const dateStr = formatDateLocal(date);
                       const dayActivities = activitiesByCourseAndDate[course.id]?.[dateStr] || [];
 
                       return (
@@ -524,7 +525,7 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
 
                 {/* Day columns with activities */}
                 {weekDates.map((date, dayIndex) => {
-                  const dateStr = date.toISOString().split('T')[0];
+                  const dateStr = formatDateLocal(date);
                   const dayActivities = activities.filter(a => a.plan_date?.split('T')[0] === dateStr && a.start_time);
 
                   // Helper to convert time to minutes from midnight

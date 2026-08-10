@@ -28,7 +28,11 @@ export default function AgendaView({ kidId }: AgendaViewProps) {
   const [isAddActivityModalOpen, setIsAddActivityModalOpen] = useState(false);
 
   const timeSlots = Array.from({ length: 15 }, (_, i) => i + 7); // 7am-9pm
-  const selectedDateStr = selectedDate.toISOString().split('T')[0];
+
+  // Use formatDateLocal to avoid timezone shift when converting date to string
+  const selectedDateStr = selectedDate.getFullYear() + '-' +
+    String(selectedDate.getMonth() + 1).padStart(2, '0') + '-' +
+    String(selectedDate.getDate()).padStart(2, '0');
 
   useEffect(() => {
     if (kidId) loadAgendaData();
