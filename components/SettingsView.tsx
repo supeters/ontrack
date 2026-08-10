@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
-import { School, Calendar as CalendarIcon, Plane, Plus, Edit2, Trash2 } from 'lucide-react';
+import { School, Calendar as CalendarIcon, Plane, Plus, Edit2, Trash2, Download } from 'lucide-react';
+import CalendarExport from './CalendarExport';
 
 interface School {
   id: number;
@@ -36,7 +37,7 @@ export default function SettingsView() {
   const { theme } = useTheme();
   const c = theme.colors;
 
-  const [activeTab, setActiveTab] = useState<'schools' | 'calendars' | 'holidays'>('schools');
+  const [activeTab, setActiveTab] = useState<'schools' | 'calendars' | 'holidays' | 'export'>('schools');
   const [schools, setSchools] = useState<School[]>([]);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
@@ -263,6 +264,19 @@ export default function SettingsView() {
             <div className="flex items-center gap-2">
               <Plane className="w-4 h-4" />
               Holidays
+            </div>
+          </button>
+          <button
+            onClick={() => setActiveTab('export')}
+            className={`px-4 py-3 font-medium transition-colors border-b-2 ${
+              activeTab === 'export'
+                ? `${c.checkboxChecked.split(' ')[0].replace('bg-', 'border-')} ${c.moduleText}`
+                : `border-transparent ${c.mutedText} hover:${c.moduleText}`
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Download className="w-4 h-4" />
+              Export
             </div>
           </button>
         </div>
@@ -603,6 +617,10 @@ export default function SettingsView() {
               })}
             </div>
           </div>
+        )}
+
+        {activeTab === 'export' && (
+          <CalendarExport />
         )}
       </div>
     </div>
