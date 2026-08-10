@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/lib/supabase/client';
 
 // GET /api/schools - Get all schools
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const supabase = await getServerClient();
 
@@ -14,10 +14,11 @@ export async function GET(request: NextRequest) {
     if (error) throw error;
 
     return NextResponse.json(data || []);
-  } catch (error: any) {
+  } catch (error) {
     console.error('API /api/schools GET error:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
-      { error: error.message || String(error) },
+      { error: errorMessage },
       { status: 500 }
     );
   }
@@ -78,10 +79,11 @@ export async function POST(request: NextRequest) {
       if (error) throw error;
       return NextResponse.json(data);
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error('API /api/schools POST error:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
-      { error: error.message || String(error) },
+      { error: errorMessage },
       { status: 500 }
     );
   }
@@ -107,10 +109,11 @@ export async function DELETE(request: NextRequest) {
     if (error) throw error;
 
     return NextResponse.json({ message: 'School deleted' });
-  } catch (error: any) {
+  } catch (error) {
     console.error('API /api/schools DELETE error:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
-      { error: error.message || String(error) },
+      { error: errorMessage },
       { status: 500 }
     );
   }
