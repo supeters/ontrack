@@ -1,0 +1,625 @@
+'use client';
+
+import { useState, useEffect, useMemo } from 'react';
+import { Calendar, ChevronLeft, ChevronRight, Clock, CheckCircle2, Eye } from 'lucide-react';
+import { useTheme } from '@/contexts/ThemeContext';
+import ActivityModal from './ActivityModal';
+
+interface PlannerViewProps {
+  kidId: number;
+}
+
+export default function PlannerView({ kidId }: PlannerViewProps) {
+  const { theme } = useTheme();
+  const c = theme.colors;
+
+  const [activities, setActivities] = useState<any[]>([]);
+  const [courses, setCourses] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentWeekStart, setCurrentWeekStart] = useState(getStartOfWeek(new Date()));
+  const [hideWeekends, setHideWeekends] = useState(true);
+  const [selectedActivity, setSelectedActivity] = useState<any>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [draggedActivity, setDraggedActivity] = useState<any>(null);
+  const [viewMode, setViewMode] = useState<'grid' | 'calendar'>('grid');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
+  // Get start of week (Sunday)
+  function getStartOfWeek(date: Date) {
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = d.getDate() - day;
+    return new Date(d.setDate(diff));
+  }
+
+  // Get week dates
+  const weekDates = useMemo(() => {
+    const dates = [];
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(currentWeekStart);
+      date.setDate(date.getDate() + i);
+
+      // Skip weekends if hideWeekends is true
+      if (hideWeekends && (date.getDay() === 0 || date.getDay() === 6)) {
+        continue;
+      }
+
+      dates.push(date);
+    }
+    return dates;
+  }, [currentWeekStart, hideWeekends]);
+
+  // Load activities and courses
+  useEffect(() => {
+    loadData();
+  }, [kidId, currentWeekStart]);
+
+  const loadData = async () => {
+    if (!kidId) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const startDate = new Date(currentWeekStart);
+      const endDate = new Date(currentWeekStart);
+      endDate.setDate(endDate.getDate() + 6);
+
+      const startDateStr = startDate.toISOString().split('T')[0];
+      const endDateStr = endDate.toISOString().split('T')[0];
+
+      // Fetch planner data from API
+      const response = await fetch(
+        `/api/planner?kidId=${kidId}&startDate=${startDateStr}&endDate=${endDateStr}`
+      );
+      const data = await response.json();
+
+      setActivities(data.activities || []);
+      setCourses(data.courses || []);
+    } catch (error) {
+      console.error('Error loading planner data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Calculate time totals per day
+  const dailyTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    weekDates.forEach(date => {
+      const dateStr = date.toISOString().split('T')[0];
+      const dayActivities = activities.filter(a => a.plan_date?.split('T')[0] === dateStr);
+      totals[dateStr] = dayActivities.reduce((sum, a) => sum + (a.estimated_minutes || 0), 0);
+    });
+    return totals;
+  }, [activities, weekDates]);
+
+  // Calculate time totals per course
+  const courseTotals = useMemo(() => {
+    const totals: Record<number, number> = {};
+    courses.forEach(course => {
+      const courseActivities = activities.filter(a => a.course_id === course.id);
+      totals[course.id] = courseActivities.reduce((sum, a) => sum + (a.estimated_minutes || 0), 0);
+    });
+    return totals;
+  }, [activities, courses]);
+
+  // Group activities by course and date
+  const activitiesByCourseAndDate = useMemo(() => {
+    const grouped: Record<string | number, Record<string, any[]>> = {};
+
+    courses.forEach(course => {
+      grouped[course.id] = {};
+      weekDates.forEach(date => {
+        const dateStr = date.toISOString().split('T')[0];
+        grouped[course.id][dateStr] = [];
+      });
+    });
+
+    // Add "No Course" group
+    grouped['no-course'] = {};
+    weekDates.forEach(date => {
+      const dateStr = date.toISOString().split('T')[0];
+      grouped['no-course'][dateStr] = [];
+    });
+
+    activities.forEach(activity => {
+      const courseId = activity.course_id || 'no-course';
+      const dateStr = activity.plan_date?.split('T')[0];
+
+      if (dateStr && grouped[courseId] && grouped[courseId][dateStr]) {
+        grouped[courseId][dateStr].push(activity);
+      }
+    });
+
+    return grouped;
+  }, [activities, courses, weekDates]);
+
+  // Format date
+  const formatDate = (date: Date) => {
+    return new Intl.DateTimeFormat('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric'
+    }).format(date);
+  };
+
+  // Format time
+  const formatTime = (minutes: number) => {
+    if (!minutes || minutes === 0) return '0m';
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    if (hours > 0) {
+      return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+    }
+    return `${mins}m`;
+  };
+
+  // Navigate weeks
+  const goToPrevWeek = () => {
+    const newDate = new Date(currentWeekStart);
+    newDate.setDate(newDate.getDate() - 7);
+    setCurrentWeekStart(getStartOfWeek(newDate));
+  };
+
+  const goToNextWeek = () => {
+    const newDate = new Date(currentWeekStart);
+    newDate.setDate(newDate.getDate() + 7);
+    setCurrentWeekStart(getStartOfWeek(newDate));
+  };
+
+  const goToToday = () => {
+    setCurrentWeekStart(getStartOfWeek(new Date()));
+  };
+
+  const isToday = (date: Date) => {
+    const today = new Date();
+    return date.toDateString() === today.toDateString();
+  };
+
+  // Handle activity modal
+  const openActivityModal = (activity: any) => {
+    setSelectedActivity(activity);
+    setIsModalOpen(true);
+  };
+
+  const closeActivityModal = () => {
+    setSelectedActivity(null);
+    setIsModalOpen(false);
+  };
+
+  const handleActivitySave = async ({ activityId, updates }: any) => {
+    try {
+      await fetch('/api/activities', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activityId, updates }),
+      });
+      closeActivityModal();
+      loadData();
+    } catch (error) {
+      console.error('Error updating activity:', error);
+    }
+  };
+
+  // Drag and drop handlers
+  const handleDragStart = (activity: any) => {
+    setDraggedActivity(activity);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = async (targetDate: Date) => {
+    if (!draggedActivity) return;
+
+    const newPlanDate = targetDate.toISOString().split('T')[0];
+
+    try {
+      await fetch('/api/activities', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          activityId: draggedActivity.id,
+          updates: { plan_date: newPlanDate },
+        }),
+      });
+      setDraggedActivity(null);
+      loadData();
+    } catch (error) {
+      console.error('Error moving activity:', error);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <div className={`animate-spin rounded-full h-12 w-12 border-b-2 ${c.checkboxChecked.split(' ')[0].replace('bg-', 'border-')} mx-auto mb-4`}></div>
+          <p className={c.mutedText}>Loading planner...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`h-full flex flex-col ${c.bg}`}>
+      {/* Header */}
+      <div className={`${c.cardBg} border-b ${c.divider} p-3`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Calendar className={`w-5 h-5 ${c.moduleIcon}`} />
+            <h2 className={`text-lg font-semibold ${c.moduleText}`}>Weekly Planner</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* View Mode Toggle */}
+            <div className={`flex items-center border ${c.moduleBorder} rounded-lg overflow-hidden`}>
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                  viewMode === 'grid'
+                    ? `${c.checkboxChecked} text-white`
+                    : `${c.cardBg} ${c.activityText} hover:bg-opacity-10`
+                }`}
+              >
+                Grid
+              </button>
+              <button
+                onClick={() => setViewMode('calendar')}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors border-l ${c.moduleBorder} ${
+                  viewMode === 'calendar'
+                    ? `${c.checkboxChecked} text-white`
+                    : `${c.cardBg} ${c.activityText} hover:bg-opacity-10`
+                }`}
+              >
+                Calendar
+              </button>
+            </div>
+
+            <label className="flex items-center gap-1.5 text-xs">
+              <input
+                type="checkbox"
+                checked={hideWeekends}
+                onChange={(e) => setHideWeekends(e.target.checked)}
+                className="rounded"
+              />
+              <span className={c.activityText}>Hide Weekends</span>
+            </label>
+
+            <div className={`flex items-center border ${c.moduleBorder} rounded-lg`}>
+              <button
+                onClick={goToPrevWeek}
+                className={`p-1.5 hover:bg-opacity-10 transition-colors ${c.activityText}`}
+                title="Previous week"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                onClick={goToToday}
+                className={`px-3 py-1.5 text-xs font-medium hover:bg-opacity-10 transition-colors border-x ${c.moduleBorder} ${c.activityText}`}
+              >
+                Today
+              </button>
+              <button
+                onClick={goToNextWeek}
+                className={`p-1.5 hover:bg-opacity-10 transition-colors ${c.activityText}`}
+                title="Next week"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Date Picker */}
+            <div className="relative">
+              <button
+                onClick={() => setShowDatePicker(!showDatePicker)}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium ${c.activityText} hover:bg-opacity-10 rounded-lg transition-colors border ${c.moduleBorder}`}
+              >
+                <Calendar className="w-4 h-4" />
+                Week of {currentWeekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </button>
+
+              {showDatePicker && (
+                <>
+                  <div className="fixed inset-0 z-20" onClick={() => setShowDatePicker(false)} />
+                  <div className={`absolute right-0 mt-2 ${c.cardBg} border ${c.moduleBorder} rounded-lg shadow-xl p-4 z-30 min-w-[280px]`}>
+                    <div className="text-xs">
+                      <label className={`block ${c.moduleText} mb-2`}>Jump to date:</label>
+                      <input
+                        type="date"
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            setCurrentWeekStart(getStartOfWeek(new Date(e.target.value + 'T12:00:00')));
+                            setShowDatePicker(false);
+                          }
+                        }}
+                        className={`w-full px-3 py-2 border ${c.moduleBorder} rounded-lg ${c.cardBg} ${c.moduleText}`}
+                      />
+                    </div>
+                    <div className="mt-3 pt-3 border-t ${c.divider} flex gap-2">
+                      <button
+                        onClick={() => {
+                          setCurrentWeekStart(getStartOfWeek(new Date()));
+                          setShowDatePicker(false);
+                        }}
+                        className={`flex-1 px-3 py-1.5 text-xs ${c.checkboxChecked} text-white rounded hover:opacity-90 transition-opacity`}
+                      >
+                        This Week
+                      </button>
+                      <button
+                        onClick={() => setShowDatePicker(false)}
+                        className={`px-3 py-1.5 text-xs ${c.activityText} hover:bg-opacity-10 rounded transition-colors`}
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Grid View - Course-grouped */}
+      {viewMode === 'grid' && (
+        <div className="flex-1 overflow-auto">
+          <table className="w-full border-collapse text-xs">
+            <thead>
+              <tr>
+                <th className={`sticky left-0 z-10 ${c.cardBg} border-b ${c.divider} p-2 text-left text-xs font-semibold ${c.moduleText} w-32`}>
+                  Course
+                </th>
+                {weekDates.map((date, index) => {
+                  const dateStr = date.toISOString().split('T')[0];
+                  const dayTotal = dailyTotals[dateStr] || 0;
+                  return (
+                    <th
+                      key={index}
+                      className={`border-b ${c.divider} p-2 text-xs font-semibold ${
+                        isToday(date) ? `${c.checkboxChecked} text-white` : c.moduleText
+                      }`}
+                    >
+                      <div className="whitespace-nowrap">{formatDate(date)}</div>
+                      {dayTotal > 0 && (
+                        <div className={`text-[10px] font-medium mt-0.5 ${isToday(date) ? 'text-white' : c.statText}`}>
+                          {formatTime(dayTotal)}
+                        </div>
+                      )}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {courses.length === 0 && (
+                <tr>
+                  <td colSpan={weekDates.length + 1} className={`p-4 text-center ${c.mutedText} text-sm`}>
+                    No courses with activities this week
+                  </td>
+                </tr>
+              )}
+              {courses.map(course => {
+                const courseTotal = courseTotals[course.id] || 0;
+
+                return (
+                  <tr key={course.id} className={`border-b ${c.divider}`}>
+                    <td className={`sticky left-0 z-10 ${c.cardBg} p-2 font-medium text-xs ${c.moduleText}`}>
+                      <div className="truncate">{course.course_name}</div>
+                      {courseTotal > 0 && (
+                        <div className={`text-[10px] ${c.statText} font-medium mt-0.5`}>
+                          {formatTime(courseTotal)}
+                        </div>
+                      )}
+                    </td>
+                    {weekDates.map((date, dateIndex) => {
+                      const dateStr = date.toISOString().split('T')[0];
+                      const dayActivities = activitiesByCourseAndDate[course.id]?.[dateStr] || [];
+
+                      return (
+                        <td
+                          key={dateIndex}
+                          className={`p-1 align-top ${isToday(date) ? 'bg-opacity-5 ' + c.checkboxChecked : ''} border-l ${c.divider}`}
+                          onDragOver={handleDragOver}
+                          onDrop={() => handleDrop(date)}
+                        >
+                          <div className="space-y-1 min-h-[40px]">
+                            {dayActivities.slice(0, 3).map(activity => {
+                              const isEvent = activity.activity_type === 'event' || activity.activity_type === 'class';
+
+                              return (
+                                <div
+                                  key={activity.id}
+                                  draggable
+                                  onDragStart={() => handleDragStart(activity)}
+                                  onClick={() => openActivityModal(activity)}
+                                  className={`px-2 py-1.5 rounded text-[11px] border ${c.moduleBorder} ${
+                                    activity.is_completed ? 'opacity-60' : ''
+                                  } ${c.workgroupBg} cursor-pointer hover:shadow-sm transition-shadow`}
+                                >
+                                  <div className="flex items-start gap-1.5">
+                                    {/* Activity Type Icon */}
+                                    <div className={`${isEvent ? 'bg-blue-100' : 'bg-orange-100'} rounded-sm p-0.5 flex-shrink-0 mt-0.5`}>
+                                      {isEvent ? (
+                                        <div className="w-2 h-2 rounded-full border-2 border-blue-500"></div>
+                                      ) : (
+                                        <div className="w-2 h-2 bg-orange-500"></div>
+                                      )}
+                                    </div>
+
+                                    <div className="flex-1 min-w-0">
+                                      <div className={`font-medium leading-tight line-clamp-2 ${activity.is_completed ? 'line-through text-gray-500' : c.activityText}`}>
+                                        {activity.title}
+                                      </div>
+                                      {activity.estimated_minutes > 0 && (
+                                        <div className={`text-[10px] ${c.mutedText} mt-0.5 flex items-center gap-1`}>
+                                          <Clock className="w-2.5 h-2.5" />
+                                          <span>{formatTime(activity.estimated_minutes)}</span>
+                                          {activity.is_completed && (
+                                            <CheckCircle2 className="w-3 h-3 text-green-500 flex-shrink-0" />
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            {dayActivities.length > 3 && (
+                              <div className={`text-[10px] ${c.statText} px-2 py-1`}>
+                                +{dayActivities.length - 3} more
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Calendar View - Time-based */}
+      {viewMode === 'calendar' && (
+        <div className="flex-1 overflow-auto">
+          <div className={`grid gap-0 border ${c.divider}`} style={{ gridTemplateColumns: `repeat(${weekDates.length}, 1fr)` }}>
+            {/* Day headers */}
+            {weekDates.map((date, index) => {
+              const dateStr = date.toISOString().split('T')[0];
+              const dayActivities = activities.filter(a => a.plan_date?.split('T')[0] === dateStr && a.start_time);
+              const dayTotal = dayActivities.reduce((sum, a) => sum + (a.estimated_minutes || 0), 0);
+
+              return (
+                <div
+                  key={index}
+                  className={`${isToday(date) ? `${c.checkboxChecked} text-white` : c.cardBg} border-b ${c.divider} p-2 text-center`}
+                >
+                  <div className={`text-xs font-semibold ${isToday(date) ? 'text-white' : c.moduleText}`}>{formatDate(date)}</div>
+                  {dayTotal > 0 && (
+                    <div className={`text-[10px] mt-0.5 ${isToday(date) ? 'text-white' : c.statText}`}>
+                      {formatTime(dayTotal)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Time grid spanning all columns */}
+            <div className="relative" style={{ gridColumn: `span ${weekDates.length}` }}>
+              <div className="grid" style={{ gridTemplateColumns: `auto repeat(${weekDates.length}, 1fr)` }}>
+                {/* Time labels column */}
+                <div className={c.cardBg}>
+                  {Array.from({ length: 15 }, (_, i) => i + 7).map(hour => (
+                    <div key={hour} className={`border-b ${c.divider} px-2 py-1 text-xs ${c.mutedText} flex items-center h-12`}>
+                      {hour === 12 ? '12 PM' : hour > 12 ? `${hour - 12} PM` : `${hour} AM`}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Day columns with activities */}
+                {weekDates.map((date, dayIndex) => {
+                  const dateStr = date.toISOString().split('T')[0];
+                  const dayActivities = activities.filter(a => a.plan_date?.split('T')[0] === dateStr && a.start_time);
+
+                  // Helper to convert time to minutes from midnight
+                  const timeToMinutes = (timeStr: string) => {
+                    if (!timeStr) return null;
+                    const dateObj = new Date(timeStr);
+                    return dateObj.getHours() * 60 + dateObj.getMinutes();
+                  };
+
+                  return (
+                    <div key={dayIndex} className={`border-l ${c.divider} relative`}>
+                      {/* Grid lines */}
+                      {Array.from({ length: 15 }).map((_, i) => (
+                        <div key={i} className="border-b border-gray-100 h-12" />
+                      ))}
+
+                      {/* Activities positioned absolutely */}
+                      {dayActivities.map(activity => {
+                        const startMinutes = timeToMinutes(activity.start_time);
+                        if (startMinutes === null) return null;
+
+                        // Calculate duration
+                        let duration = 60; // Default 1 hour
+                        if (activity.end_time) {
+                          const endMinutes = timeToMinutes(activity.end_time);
+                          if (endMinutes) duration = endMinutes - startMinutes;
+                        } else if (activity.estimated_minutes) {
+                          duration = activity.estimated_minutes;
+                        }
+
+                        // Calculate position (7 AM = 0px)
+                        const startHour = 7;
+                        const relativeMinutes = startMinutes - (startHour * 60);
+                        const topPosition = (relativeMinutes / 60) * 48; // 48px per hour
+                        const heightPixels = Math.max((duration / 60) * 48, 12);
+
+                        // Format time for display
+                        const formatDisplayTime = (timeStr: string) => {
+                          if (!timeStr) return '';
+                          const date = new Date(timeStr);
+                          const hours = date.getHours();
+                          const minutes = date.getMinutes();
+                          const ampm = hours >= 12 ? 'PM' : 'AM';
+                          const displayHour = hours > 12 ? hours - 12 : hours === 0 ? 12 : hours;
+                          return `${displayHour}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+                        };
+
+                        const startTime = formatDisplayTime(activity.start_time);
+                        const endTime = activity.end_time ? formatDisplayTime(activity.end_time) : '';
+
+                        return (
+                          <div
+                            key={activity.id}
+                            draggable
+                            onDragStart={() => handleDragStart(activity)}
+                            className={`absolute left-0 right-0 mx-1 px-2 py-1.5 rounded border-2 ${c.moduleBorder} ${
+                              activity.is_completed ? 'opacity-60' : ''
+                            } ${c.workgroupBg} cursor-move hover:shadow-md transition-shadow z-10`}
+                            style={{
+                              top: `${topPosition}px`,
+                              height: `${heightPixels}px`,
+                              minHeight: '20px'
+                            }}
+                            onClick={() => openActivityModal(activity)}
+                          >
+                            <div className={`font-semibold leading-tight mb-1 text-[11px] ${activity.is_completed ? 'line-through text-gray-500' : c.moduleText}`}>
+                              {activity.title}
+                            </div>
+                            <div className="flex items-center justify-between text-[10px]">
+                              <span className={`font-medium ${c.mutedText}`}>
+                                {startTime}{endTime && ` - ${endTime}`}
+                              </span>
+                              {activity.is_completed && (
+                                <CheckCircle2 className="w-3 h-3 text-green-500" />
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Activity Modal */}
+      <ActivityModal
+        isOpen={isModalOpen}
+        onClose={closeActivityModal}
+        activity={selectedActivity}
+        onSave={handleActivitySave}
+      />
+    </div>
+  );
+}
