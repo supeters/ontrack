@@ -66,18 +66,6 @@ export default function SettingsView() {
   const [holidayName, setHolidayName] = useState('');
   const [holidayDescription, setHolidayDescription] = useState('');
 
-  useEffect(() => {
-    if (activeTab === 'schools') loadSchools();
-    else if (activeTab === 'calendars') {
-      loadSchools(); // Load schools for dropdown
-      loadCalendars();
-    }
-    else if (activeTab === 'holidays') {
-      loadCalendars();
-      loadHolidays();
-    }
-  }, [activeTab]);
-
   const loadSchools = async () => {
     setLoading(true);
     try {
@@ -113,6 +101,19 @@ export default function SettingsView() {
     }
     setLoading(false);
   };
+
+  useEffect(() => {
+    if (activeTab === 'schools') loadSchools();
+    else if (activeTab === 'calendars') {
+      loadSchools(); // Load schools for dropdown
+      loadCalendars();
+    }
+    else if (activeTab === 'holidays') {
+      loadCalendars();
+      loadHolidays();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   const handleSaveSchool = async (e: React.FormEvent) => {
     e.preventDefault();
