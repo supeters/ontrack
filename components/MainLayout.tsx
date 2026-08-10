@@ -31,11 +31,6 @@ export default function MainLayout() {
   const [coursesExpanded, setCoursesExpanded] = useState(true);
   const [schoolYears, setSchoolYears] = useState<Array<{ name: string; is_current: boolean }>>([]);
 
-  // Load school years on mount
-  useEffect(() => {
-    loadSchoolYears();
-  }, []);
-
   const loadSchoolYears = async () => {
     try {
       const response = await fetch('/api/school-years');
@@ -54,6 +49,26 @@ export default function MainLayout() {
       console.error('Error loading school years:', error);
     }
   };
+
+  const loadCourses = async () => {
+    if (!selectedKid) return;
+
+    try {
+      setLoading(true);
+      const response = await fetch(`/api/courses?kidId=${selectedKid.id}&schoolYear=${selectedSchoolYear}`);
+      const data = await response.json();
+      setCourses(data || []);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error loading courses:', error);
+      setLoading(false);
+    }
+  };
+
+  // Load school years on mount
+  useEffect(() => {
+    loadSchoolYears();
+  }, []);
 
   // Load courses when selectedKid or selectedSchoolYear changes
   useEffect(() => {
@@ -75,21 +90,6 @@ export default function MainLayout() {
     window.addEventListener('courseCreated', handleCourseCreated);
     return () => window.removeEventListener('courseCreated', handleCourseCreated);
   }, [selectedKid, selectedSchoolYear]);
-
-  const loadCourses = async () => {
-    if (!selectedKid) return;
-
-    try {
-      setLoading(true);
-      const response = await fetch(`/api/courses?kidId=${selectedKid.id}&schoolYear=${selectedSchoolYear}`);
-      const data = await response.json();
-      setCourses(data || []);
-      setLoading(false);
-    } catch (error) {
-      console.error('Error loading courses:', error);
-      setLoading(false);
-    }
-  };
 
   const c = theme.colors;
 

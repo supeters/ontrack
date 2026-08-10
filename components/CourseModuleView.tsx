@@ -37,11 +37,6 @@ export default function CourseModuleView({ course, kidId }: CourseModuleViewProp
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
   const [isCourseEditModalOpen, setIsCourseEditModalOpen] = useState(false);
 
-  useEffect(() => {
-    if (!course || !kidId) return;
-    loadModules();
-  }, [course, kidId]);
-
   const loadModules = async () => {
     setLoading(true);
     try {
@@ -57,6 +52,11 @@ export default function CourseModuleView({ course, kidId }: CourseModuleViewProp
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!course || !kidId) return;
+    loadModules();
+  }, [course, kidId]);
 
   const toggleModule = (moduleId: number) => {
     const newExpanded = new Set(expandedModules);

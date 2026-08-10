@@ -40,7 +40,6 @@ export default function SettingsView() {
   const [schools, setSchools] = useState<School[]>([]);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
-  const [loading, setLoading] = useState(false);
 
   // School form
   const [showSchoolForm, setShowSchoolForm] = useState(false);
@@ -50,7 +49,6 @@ export default function SettingsView() {
 
   // Calendar form
   const [showCalendarForm, setShowCalendarForm] = useState(false);
-  const [editingCalendar, setEditingCalendar] = useState<Calendar | null>(null);
   const [calSchoolName, setCalSchoolName] = useState('');
   const [calYearName, setCalYearName] = useState('');
   const [calTermName, setCalTermName] = useState('');
@@ -67,7 +65,6 @@ export default function SettingsView() {
   const [holidayDescription, setHolidayDescription] = useState('');
 
   const loadSchools = async () => {
-    setLoading(true);
     try {
       const res = await fetch('/api/schools');
       const data = await res.json();
@@ -75,11 +72,9 @@ export default function SettingsView() {
     } catch (error) {
       console.error('Error loading schools:', error);
     }
-    setLoading(false);
   };
 
   const loadCalendars = async () => {
-    setLoading(true);
     try {
       const res = await fetch('/api/calendars');
       const data = await res.json();
@@ -87,11 +82,9 @@ export default function SettingsView() {
     } catch (error) {
       console.error('Error loading calendars:', error);
     }
-    setLoading(false);
   };
 
   const loadHolidays = async () => {
-    setLoading(true);
     try {
       const res = await fetch('/api/holidays');
       const data = await res.json();
@@ -99,7 +92,6 @@ export default function SettingsView() {
     } catch (error) {
       console.error('Error loading holidays:', error);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -152,7 +144,6 @@ export default function SettingsView() {
         }),
       });
       setShowCalendarForm(false);
-      setEditingCalendar(null);
       setCalSchoolName('');
       setCalYearName('');
       setCalTermName('');
@@ -458,7 +449,6 @@ export default function SettingsView() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => {
-                        setEditingCalendar(calendar);
                         setCalSchoolName(calendar.school_name);
                         setCalYearName(calendar.school_year_name);
                         setCalTermName(calendar.term_name);

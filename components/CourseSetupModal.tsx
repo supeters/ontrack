@@ -57,6 +57,16 @@ export default function CourseSetupModal({
     { num: 6, name: 'Sat' }
   ];
 
+  const loadCalendars = async () => {
+    try {
+      const response = await fetch('/api/calendars');
+      const data = await response.json();
+      setCalendars(data || []); // API returns array directly, not wrapped
+    } catch (error) {
+      console.error('Error loading calendars:', error);
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
       loadCalendars();
@@ -83,16 +93,6 @@ export default function CourseSetupModal({
       }
     }
   }, [isOpen, existingCourse]);
-
-  const loadCalendars = async () => {
-    try {
-      const response = await fetch('/api/calendars');
-      const data = await response.json();
-      setCalendars(data || []); // API returns array directly, not wrapped
-    } catch (error) {
-      console.error('Error loading calendars:', error);
-    }
-  };
 
   const toggleWorkDay = (dayNum: number) => {
     setWorkDays(prev =>

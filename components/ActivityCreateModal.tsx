@@ -58,12 +58,6 @@ export default function ActivityCreateModal({
     { num: 6, name: 'Sat' }
   ];
 
-  useEffect(() => {
-    if (isOpen) {
-      loadCourses();
-    }
-  }, [isOpen, kidId]);
-
   const loadCourses = async () => {
     try {
       const response = await fetch(`/api/courses?kidId=${kidId}`);
@@ -73,6 +67,12 @@ export default function ActivityCreateModal({
       console.error('Error loading courses:', error);
     }
   };
+
+  useEffect(() => {
+    if (isOpen) {
+      loadCourses();
+    }
+  }, [isOpen, kidId]);
 
   const toggleRecurDay = (dayNum: number) => {
     setRecurDays(prev =>
