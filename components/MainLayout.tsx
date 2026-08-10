@@ -29,7 +29,7 @@ export default function MainLayout() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(false);
   const [coursesExpanded, setCoursesExpanded] = useState(true);
-  const [schoolYears, setSchoolYears] = useState<any[]>([]);
+  const [schoolYears, setSchoolYears] = useState<Array<{ name: string; is_current: boolean }>>([]);
 
   // Load school years on mount
   useEffect(() => {
@@ -39,11 +39,11 @@ export default function MainLayout() {
   const loadSchoolYears = async () => {
     try {
       const response = await fetch('/api/school-years');
-      const data = await response.json();
+      const data: Array<{ name: string; is_current: boolean }> = await response.json();
       setSchoolYears(data || []);
 
       // Find and set the current school year
-      const currentYear = data?.find((y: any) => y.is_current);
+      const currentYear = data?.find((y) => y.is_current);
       if (currentYear) {
         setSelectedSchoolYear(currentYear.name);
       } else if (data && data.length > 0) {

@@ -50,11 +50,6 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
     return dates;
   }, [currentWeekStart, hideWeekends]);
 
-  // Load activities and courses
-  useEffect(() => {
-    loadData();
-  }, [kidId, currentWeekStart]);
-
   const loadData = async () => {
     if (!kidId) {
       setLoading(false);
@@ -85,6 +80,12 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
       setLoading(false);
     }
   };
+
+  // Load activities and courses
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kidId, currentWeekStart]);
 
   // Calculate time totals per day
   const dailyTotals = useMemo(() => {
