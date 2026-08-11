@@ -7,6 +7,7 @@ import { BookOpen, Calendar, Settings, LogOut, Palette, ChevronDown, ChevronUp, 
 import CoursesView from './CoursesView';
 import AgendaView from './AgendaView';
 import PlannerView from './PlannerView';
+import CalendarView from './CalendarView';
 import SettingsView from './SettingsView';
 import { themes } from '@/lib/themes';
 
@@ -20,7 +21,7 @@ interface Course {
 export default function MainLayout() {
   const { signOut, user, kids, selectedKid, setSelectedKid } = useAuth();
   const { theme, currentTheme, changeTheme } = useTheme();
-  const [selectedView, setSelectedView] = useState<'agenda' | 'planner' | 'courses' | 'settings'>('agenda');
+  const [selectedView, setSelectedView] = useState<'agenda' | 'planner' | 'calendar' | 'courses' | 'settings'>('agenda');
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [selectedSchoolYear, setSelectedSchoolYear] = useState<string>('');
   const [showKidDropdown, setShowKidDropdown] = useState(false);
@@ -272,6 +273,19 @@ export default function MainLayout() {
               <span className="text-sm font-semibold">Planner</span>
             </button>
 
+            {/* Calendar Link */}
+            <button
+              onClick={() => setSelectedView('calendar')}
+              className={`w-full text-left px-4 py-3 rounded-lg transition-colors flex items-center gap-2 ${
+                selectedView === 'calendar'
+                  ? `${c.checkboxChecked} text-white shadow-sm`
+                  : `${c.cardBg} ${c.activityText} ${c.activityHover.replace('border-transparent', '')} border ${c.moduleBorder}`
+              }`}
+            >
+              <Calendar className="w-5 h-5" />
+              <span className="text-sm font-semibold">Calendar</span>
+            </button>
+
             {/* Collapsible Courses Section */}
             <div className={`${c.cardBg} rounded-lg border ${c.moduleBorder} shadow-sm`}>
               {/* Courses Header - Collapsible */}
@@ -342,6 +356,8 @@ export default function MainLayout() {
             <CoursesView selectedCourse={selectedCourse} kidId={selectedKid?.id || 0} />
           ) : selectedView === 'planner' && selectedKid ? (
             <PlannerView kidId={selectedKid.id} />
+          ) : selectedView === 'calendar' && selectedKid ? (
+            <CalendarView kidId={selectedKid.id} />
           ) : selectedView === 'settings' ? (
             <SettingsView />
           ) : (

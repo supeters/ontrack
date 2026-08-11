@@ -16,10 +16,14 @@ import {
   Calendar,
   Target,
   Edit2,
+  List,
+  CalendarDays,
 } from 'lucide-react';
 import ActivityDetailModal from './ActivityDetailModal';
+import ActivityModal from './ActivityModal';
 import CourseSetupModal from './CourseSetupModal';
 import { useTheme } from '@/contexts/ThemeContext';
+import { formatDateLocal } from '@/lib/datetime';
 
 interface CourseModuleViewProps {
   course: any;
@@ -30,12 +34,20 @@ export default function CourseModuleView({ course, kidId }: CourseModuleViewProp
   const { theme } = useTheme();
   const c = theme.colors;
 
-  const [modules, setModules] = useState<any[]>([]);
+  const [modules, setModules] = useState<any[]>([]); // All modules including "General"
+  const [weekModules, setWeekModules] = useState<any[]>([]); // Modules with position > 0
+  const [allActivities, setAllActivities] = useState<any[]>([]);
   const [expandedModules, setExpandedModules] = useState<Set<number>>(new Set());
   const [expandedWorkgroups, setExpandedWorkgroups] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
+  const [completionActivity, setCompletionActivity] = useState<any>(null);
   const [isCourseEditModalOpen, setIsCourseEditModalOpen] = useState(false);
+
+  // Week navigation
+  const [viewMode, setViewMode] = useState<'week' | 'all'>('week');
+  const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
+  const [showMoreAssignments, setShowMoreAssignments] = useState(false);
 
   const loadModules = async () => {
     setLoading(true);
@@ -44,10 +56,47 @@ export default function CourseModuleView({ course, kidId }: CourseModuleViewProp
         `/api/courses/${course.id}/modules?kidId=${kidId}`
       );
       const data = await response.json();
-      setModules(Array.isArray(data) ? data : []);
+      const modulesList = Array.isArray(data) ? data : [];
+      setModules(modulesList);
+
+      // Extract all activities from modules for sidebar
+      const activities: any[] = [];
+      modulesList.forEach((module: any) => {
+        module.direct_activities?.forEach((act: any) => activities.push(act));
+        module.workgroups?.forEach((wg: any) => {
+          wg.activities?.forEach((act: any) => activities.push(act));
+        });
+      });
+      setAllActivities(activities);
+
+      // Filter out "General" section (position 0) for week navigation
+      const weekModulesList = modulesList.filter((m: any) => m.position > 0);
+      setWeekModules(weekModulesList);
+
+      // Find current week based on today's date
+      const today = formatDateLocal(new Date());
+      const currentIndex = weekModulesList.findIndex((m: any) =>
+        m.activity_type === 'module' && m.plan_date && m.plan_date >= today
+      );
+
+      if (currentIndex >= 0) {
+        setCurrentWeekIndex(currentIndex);
+        // Auto-expand current week module
+        if (weekModulesList[currentIndex]?.id) {
+          setExpandedModules(new Set([weekModulesList[currentIndex].id]));
+        }
+      } else {
+        // If no future week, show last week
+        const lastIndex = Math.max(0, weekModulesList.length - 1);
+        setCurrentWeekIndex(lastIndex);
+        if (weekModulesList[lastIndex]?.id) {
+          setExpandedModules(new Set([weekModulesList[lastIndex].id]));
+        }
+      }
     } catch (error) {
       console.error('Error loading modules:', error);
       setModules([]);
+      setAllActivities([]);
     } finally {
       setLoading(false);
     }
@@ -102,22 +151,9 @@ export default function CourseModuleView({ course, kidId }: CourseModuleViewProp
     return `${hours}h ${mins}m`;
   };
 
-  const handleActivityClick = async (activity: any) => {
-    try {
-      const response = await fetch(`/api/activities`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          activityId: activity.id,
-          updates: { is_completed: !activity.is_completed },
-        }),
-      });
-
-      if (!response.ok) throw new Error('Failed to update activity');
-      await loadModules();
-    } catch (error) {
-      console.error('Error updating activity:', error);
-    }
+  const handleActivityClick = (activity: any) => {
+    // Open ActivityModal for completion tracking
+    setCompletionActivity(activity);
   };
 
   const toggleActionable = async (activity: any, e: React.MouseEvent) => {
@@ -165,92 +201,44 @@ export default function CourseModuleView({ course, kidId }: CourseModuleViewProp
     const isActionable = activity.is_action;
 
     return (
-      <div className={`py-3 px-4 pl-10 ${c.activityHover} transition-colors group border-l-2 ${c.activityBorderHover}`}>
+      <div className={`py-3 px-4 pl-10 ${c.activityHover} transition-colors border-l-2 ${c.activityBorderHover}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 flex-1">
-            {/* Checkbox */}
-            <button
-              onClick={() => handleActivityClick(activity)}
-              className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all flex-shrink-0 ${
-                activity.is_completed
-                  ? c.checkboxChecked
-                  : isActionable
-                  ? c.checkboxBorder + ' hover:border-stone-400'
-                  : 'border-stone-200 hover:border-stone-300'
-              }`}
-              title={activity.is_completed ? 'Mark incomplete' : 'Mark complete'}
-            >
-              {activity.is_completed && (
-                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                </svg>
-              )}
-            </button>
+            {/* Checkbox - Only for actionable items */}
+            {isActionable ? (
+              <button
+                onClick={() => handleActivityClick(activity)}
+                className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all flex-shrink-0 ${
+                  activity.is_completed
+                    ? c.checkboxChecked
+                    : c.checkboxBorder + ' hover:border-stone-400'
+                }`}
+                title={activity.is_completed ? 'Mark incomplete' : 'Mark complete'}
+              >
+                {activity.is_completed && (
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </button>
+            ) : (
+              <div className="w-6 h-6 flex-shrink-0" />
+            )}
 
             {getActivityIcon(activity.activity_type)}
 
-            <span
-              className={`text-sm flex-1 ${
+            {/* Clickable title - opens detail modal */}
+            <button
+              onClick={() => setSelectedActivity(activity)}
+              className={`text-sm flex-1 text-left ${
                 activity.is_completed
                   ? 'line-through text-stone-400'
                   : c.activityText
-              }`}
+              } hover:underline cursor-pointer font-medium`}
+              title="Click to view details and change settings"
             >
               {activity.title}
-            </span>
-
-            {/* Action Icons - Show on hover */}
-            <div className={`flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity`}>
-              {/* Make Actionable / Remove */}
-              <button
-                onClick={(e) => toggleActionable(activity, e)}
-                className={`p-1.5 rounded transition-colors ${
-                  isActionable
-                    ? `${c.checkboxChecked} text-white`
-                    : `hover:bg-stone-100 ${c.mutedText}`
-                }`}
-                title={isActionable ? 'Remove from tasks' : 'Add to my tasks'}
-              >
-                <Target className="w-4 h-4" />
-              </button>
-
-              {/* Calendar - Only for actionable items */}
-              {isActionable && (
-                <button
-                  onClick={(e) => updatePlanDate(activity, e)}
-                  className={`p-1.5 rounded hover:bg-stone-100 transition-colors ${c.mutedText}`}
-                  title="Set plan date"
-                >
-                  <Calendar className="w-4 h-4" />
-                </button>
-              )}
-
-              {/* Eye - Details */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedActivity(activity);
-                }}
-                className={`p-1.5 rounded hover:bg-stone-100 transition-colors ${c.mutedText}`}
-                title="View details"
-              >
-                <Eye className="w-4 h-4" />
-              </button>
-
-              {/* External Link */}
-              {(activity.lms_url || activity.resource_url) && (
-                <a
-                  href={activity.resource_url || activity.lms_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className={`p-1.5 rounded hover:bg-stone-100 transition-colors ${c.mutedText}`}
-                  title="Open resource"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                </a>
-              )}
-            </div>
+            </button>
           </div>
 
           <div className={`flex items-center gap-3 text-sm ${c.mutedText} ml-4`}>
@@ -298,40 +286,151 @@ export default function CourseModuleView({ course, kidId }: CourseModuleViewProp
     );
   }
 
-  return (
-    <div className={`p-8 max-w-5xl mx-auto h-full overflow-y-auto ${c.bg}`}>
-      {/* Course Header */}
-      <div className={`mb-6 pb-4 border-b ${c.divider} flex items-start justify-between`}>
-        <div>
-          <h1 className={`text-2xl font-semibold ${c.moduleText} mb-1`}>{course.name}</h1>
-          <p className={`text-sm ${c.mutedText}`}>{course.school}</p>
-        </div>
-        <button
-          onClick={() => setIsCourseEditModalOpen(true)}
-          className={`flex items-center gap-2 px-3 py-2 border ${c.moduleBorder} rounded-lg ${c.moduleText} ${c.activityHover.replace('border-transparent', '')} transition-colors`}
-        >
-          <Edit2 className="w-4 h-4" />
-          Edit Course
-        </button>
-      </div>
+  // Get upcoming incomplete assignments sorted by plan_date
+  const upcomingAssignments = allActivities
+    .filter((act: any) => act.is_action && !act.is_completed && act.plan_date)
+    .sort((a: any, b: any) => a.plan_date.localeCompare(b.plan_date))
+    .slice(0, showMoreAssignments ? undefined : 5);
 
-      {/* Modules List */}
-      <div className="space-y-3">
-        {modules.map((module) => {
+  // Current module to display
+  const currentModule = viewMode === 'week' ? weekModules[currentWeekIndex] : null;
+  const displayModules = viewMode === 'all' ? modules : (currentModule ? [currentModule] : []);
+
+  return (
+    <div className={`flex h-full ${c.bg}`}>
+      {/* Main Content Area */}
+      <div className="flex-1 p-8 overflow-y-auto">
+        {/* Course Header */}
+        <div className={`mb-6 pb-4 border-b ${c.divider} flex items-start justify-between`}>
+          <div>
+            <h1 className={`text-2xl font-semibold ${c.moduleText} mb-1`}>{course.name}</h1>
+            <p className={`text-sm ${c.mutedText}`}>{course.school}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* View Mode Toggle */}
+            <div className={`flex items-center gap-1 p-1 border ${c.moduleBorder} rounded-lg`}>
+              <button
+                onClick={() => setViewMode('week')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${
+                  viewMode === 'week'
+                    ? `${c.checkboxChecked} text-white`
+                    : `${c.mutedText} hover:bg-stone-100`
+                }`}
+              >
+                <CalendarDays className="w-4 h-4" />
+                Week
+              </button>
+              <button
+                onClick={() => setViewMode('all')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${
+                  viewMode === 'all'
+                    ? `${c.checkboxChecked} text-white`
+                    : `${c.mutedText} hover:bg-stone-100`
+                }`}
+              >
+                <List className="w-4 h-4" />
+                All
+              </button>
+            </div>
+
+            <button
+              onClick={() => setIsCourseEditModalOpen(true)}
+              className={`flex items-center gap-2 px-3 py-2 border ${c.moduleBorder} rounded-lg ${c.moduleText} ${c.activityHover.replace('border-transparent', '')} transition-colors`}
+            >
+              <Edit2 className="w-4 h-4" />
+              Edit
+            </button>
+          </div>
+        </div>
+
+        {/* Week Navigation (only in week view) */}
+        {viewMode === 'week' && weekModules.length > 0 && (
+          <div className={`mb-6 flex items-center justify-between p-4 border ${c.moduleBorder} rounded-lg ${c.cardBg}`}>
+            <button
+              onClick={() => {
+                const newIndex = Math.max(0, currentWeekIndex - 1);
+                setCurrentWeekIndex(newIndex);
+                if (weekModules[newIndex]?.id) {
+                  setExpandedModules(new Set([weekModules[newIndex].id]));
+                }
+              }}
+              disabled={currentWeekIndex === 0}
+              className={`flex items-center gap-2 px-3 py-2 rounded transition-colors ${
+                currentWeekIndex === 0
+                  ? `${c.mutedText} opacity-30 cursor-not-allowed`
+                  : `${c.moduleText} hover:bg-stone-100`
+              }`}
+            >
+              <ChevronLeft className="w-5 h-5" />
+              Previous Week
+            </button>
+
+            <div className="text-center">
+              <div className={`text-lg font-semibold ${c.moduleText}`}>
+                Week {currentWeekIndex + 1}
+              </div>
+              {currentModule?.plan_date && (
+                <div className={`text-sm ${c.mutedText}`}>
+                  {new Date(currentModule.plan_date + 'T00:00:00').toLocaleDateString('en-US', {
+                    month: 'long',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })}
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => {
+                const newIndex = Math.min(weekModules.length - 1, currentWeekIndex + 1);
+                setCurrentWeekIndex(newIndex);
+                if (weekModules[newIndex]?.id) {
+                  setExpandedModules(new Set([weekModules[newIndex].id]));
+                }
+              }}
+              disabled={currentWeekIndex >= weekModules.length - 1}
+              className={`flex items-center gap-2 px-3 py-2 rounded transition-colors ${
+                currentWeekIndex >= weekModules.length - 1
+                  ? `${c.mutedText} opacity-30 cursor-not-allowed`
+                  : `${c.moduleText} hover:bg-stone-100`
+              }`}
+            >
+              Next Week
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+        )}
+
+        {/* Modules List */}
+        <div className="space-y-3">
+        {displayModules.map((module) => {
           const isModuleExpanded = expandedModules.has(module.id);
 
           return (
             <div key={module.id} className={`border ${c.moduleBorder} rounded-lg overflow-hidden ${c.cardBg}`}>
               {/* Module Header */}
-              <button
-                onClick={() => toggleModule(module.id)}
-                className={`w-full flex items-center justify-between p-4 ${c.moduleHeader} transition-colors`}
-              >
-                <div className="flex items-center gap-3">
+              <div className={`w-full flex items-center justify-between p-4 ${c.moduleHeader} transition-colors`}>
+                <button
+                  onClick={() => toggleModule(module.id)}
+                  className="flex items-center gap-3 flex-1"
+                >
                   <Package className={`w-5 h-5 ${c.moduleIcon}`} />
                   <span className={`font-semibold ${c.moduleText}`}>{module.title}</span>
-                </div>
+                </button>
+
                 <div className="flex items-center gap-4">
+                  {/* View Details button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedActivity(module);
+                    }}
+                    className={`text-xs ${c.activityText} hover:underline`}
+                    title="View details"
+                  >
+                    details
+                  </button>
+
                   <div className={`flex items-center gap-3 text-sm ${c.statText}`}>
                     <span className="font-medium">
                       {module.stats?.completed || 0}/{module.stats?.total || 0}
@@ -347,42 +446,17 @@ export default function CourseModuleView({ course, kidId }: CourseModuleViewProp
                     )}
                   </div>
 
-                  {/* Module Actions */}
-                  <div className="flex items-center gap-1">
-                    {/* Eye - View Details */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedActivity(module);
-                      }}
-                      className={`p-1.5 rounded hover:bg-stone-100 transition-colors ${c.mutedText}`}
-                      title="View module details"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </button>
-
-                    {/* External Link */}
-                    {module.lms_url && (
-                      <a
-                        href={module.lms_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className={`p-1.5 rounded hover:bg-stone-100 transition-colors ${c.mutedText}`}
-                        title="Open in LMS"
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                      </a>
-                    )}
-                  </div>
-
-                  <ChevronRight
-                    className={`w-5 h-5 text-stone-400 transition-transform ${
-                      isModuleExpanded ? 'rotate-90' : ''
-                    }`}
-                  />
+                  <button
+                    onClick={() => toggleModule(module.id)}
+                  >
+                    <ChevronRight
+                      className={`w-5 h-5 text-stone-400 transition-transform ${
+                        isModuleExpanded ? 'rotate-90' : ''
+                      }`}
+                    />
+                  </button>
                 </div>
-              </button>
+              </div>
 
               {/* Module Content */}
               {isModuleExpanded && (
@@ -461,6 +535,73 @@ export default function CourseModuleView({ course, kidId }: CourseModuleViewProp
           );
         })}
       </div>
+      </div>
+
+      {/* Sidebar - Upcoming Assignments */}
+      <div className={`w-80 border-l ${c.divider} p-6 overflow-y-auto ${c.cardBg}`}>
+        <h2 className={`text-lg font-semibold ${c.moduleText} mb-4`}>Upcoming Work</h2>
+
+        {upcomingAssignments.length === 0 ? (
+          <div className={`text-center py-8 ${c.mutedText}`}>
+            <CheckCircle2 className="w-12 h-12 mx-auto mb-3 opacity-30" />
+            <p className="text-sm">All caught up!</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {upcomingAssignments.map((activity: any) => (
+              <div
+                key={activity.id}
+                className={`p-3 border ${c.moduleBorder} rounded-lg ${c.activityHover} transition-colors cursor-pointer`}
+                onClick={() => setSelectedActivity(activity)}
+              >
+                <div className="flex items-start gap-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleActivityClick(activity);
+                    }}
+                    className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                      activity.is_completed
+                        ? c.checkboxChecked
+                        : c.checkboxBorder + ' hover:border-stone-400'
+                    }`}
+                  >
+                    {activity.is_completed && (
+                      <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <div className={`text-sm font-medium ${c.activityText} mb-1 line-clamp-2`}>
+                      {activity.title}
+                    </div>
+                    <div className={`text-xs ${c.mutedText}`}>
+                      {activity.plan_date && (
+                        <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-medium">
+                          {new Date(activity.plan_date + 'T00:00:00').toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                          })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {!showMoreAssignments && allActivities.filter((act: any) => act.is_action && !act.is_completed && act.plan_date).length > 5 && (
+              <button
+                onClick={() => setShowMoreAssignments(true)}
+                className={`w-full py-2 text-sm ${c.mutedText} hover:${c.moduleText} transition-colors`}
+              >
+                Show more...
+              </button>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Activity Detail Modal */}
       {selectedActivity && (
@@ -468,11 +609,28 @@ export default function CourseModuleView({ course, kidId }: CourseModuleViewProp
           activity={selectedActivity}
           onClose={() => setSelectedActivity(null)}
           onUpdate={() => {
-            setSelectedActivity(null);
+            // Reload data but don't close modal
             loadModules();
           }}
         />
       )}
+
+      {/* Activity Completion Modal */}
+      <ActivityModal
+        isOpen={!!completionActivity}
+        onClose={() => setCompletionActivity(null)}
+        activity={completionActivity}
+        onSave={async (updates: any) => {
+          await fetch('/api/activities', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updates),
+          });
+          setCompletionActivity(null);
+          loadModules();
+        }}
+        courses={[]}
+      />
 
       {/* Course Edit Modal */}
       <CourseSetupModal

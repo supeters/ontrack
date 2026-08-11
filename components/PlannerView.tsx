@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Clock, CheckCircle2, Eye } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Clock, CheckCircle2 } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import ActivityModal from './ActivityModal';
 import { formatDateLocal } from '@/lib/datetime';
@@ -22,7 +22,6 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [draggedActivity, setDraggedActivity] = useState<any>(null);
-  const [viewMode, setViewMode] = useState<'grid' | 'calendar'>('grid');
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   // Get start of week (Sunday)
@@ -238,7 +237,7 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex h-full items-center justify-center">
         <div className="text-center">
           <div className={`animate-spin rounded-full h-12 w-12 border-b-2 ${c.checkboxChecked.split(' ')[0].replace('bg-', 'border-')} mx-auto mb-4`}></div>
           <p className={c.mutedText}>Loading planner...</p>
@@ -252,36 +251,12 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
       {/* Header */}
       <div className={`${c.cardBg} border-b ${c.divider} p-3`}>
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex gap-2 items-center">
             <Calendar className={`w-5 h-5 ${c.moduleIcon}`} />
             <h2 className={`text-lg font-semibold ${c.moduleText}`}>Weekly Planner</h2>
           </div>
-          <div className="flex items-center gap-2">
-            {/* View Mode Toggle */}
-            <div className={`flex items-center border ${c.moduleBorder} rounded-lg overflow-hidden`}>
-              <button
-                onClick={() => setViewMode('grid')}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                  viewMode === 'grid'
-                    ? `${c.checkboxChecked} text-white`
-                    : `${c.cardBg} ${c.activityText} hover:bg-opacity-10`
-                }`}
-              >
-                Grid
-              </button>
-              <button
-                onClick={() => setViewMode('calendar')}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors border-l ${c.moduleBorder} ${
-                  viewMode === 'calendar'
-                    ? `${c.checkboxChecked} text-white`
-                    : `${c.cardBg} ${c.activityText} hover:bg-opacity-10`
-                }`}
-              >
-                Calendar
-              </button>
-            </div>
-
-            <label className="flex items-center gap-1.5 text-xs">
+          <div className="flex gap-2 items-center">
+            <label className="flex gap-1.5 items-center text-xs">
               <input
                 type="checkbox"
                 checked={hideWeekends}
@@ -297,7 +272,7 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
                 className={`p-1.5 hover:bg-opacity-10 transition-colors ${c.activityText}`}
                 title="Previous week"
               >
-                <ChevronLeft className="w-4 h-4" />
+                <ChevronLeft className="h-4 w-4" />
               </button>
               <button
                 onClick={goToToday}
@@ -310,7 +285,7 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
                 className={`p-1.5 hover:bg-opacity-10 transition-colors ${c.activityText}`}
                 title="Next week"
               >
-                <ChevronRight className="w-4 h-4" />
+                <ChevronRight className="h-4 w-4" />
               </button>
             </div>
 
@@ -320,7 +295,7 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
                 onClick={() => setShowDatePicker(!showDatePicker)}
                 className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium ${c.activityText} hover:bg-opacity-10 rounded-lg transition-colors border ${c.moduleBorder}`}
               >
-                <Calendar className="w-4 h-4" />
+                <Calendar className="h-4 w-4" />
                 Week of {currentWeekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
               </button>
 
@@ -341,7 +316,7 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
                         className={`w-full px-3 py-2 border ${c.moduleBorder} rounded-lg ${c.cardBg} ${c.moduleText}`}
                       />
                     </div>
-                    <div className="mt-3 pt-3 border-t ${c.divider} flex gap-2">
+                    <div className="${c.divider} border-t flex gap-2 mt-3 pt-3">
                       <button
                         onClick={() => {
                           setCurrentWeekStart(getStartOfWeek(new Date()));
@@ -367,9 +342,8 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
       </div>
 
       {/* Grid View - Course-grouped */}
-      {viewMode === 'grid' && (
-        <div className="flex-1 overflow-auto">
-          <table className="w-full border-collapse text-xs">
+      <div className="flex-1 overflow-auto">
+          <table className="border-collapse text-xs w-full">
             <thead>
               <tr>
                 <th className={`sticky left-0 z-10 ${c.cardBg} border-b ${c.divider} p-2 text-left text-xs font-semibold ${c.moduleText} w-32`}>
@@ -428,7 +402,7 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
                           onDragOver={handleDragOver}
                           onDrop={() => handleDrop(date)}
                         >
-                          <div className="space-y-1 min-h-[40px]">
+                          <div className="min-h-[40px] space-y-1">
                             {dayActivities.slice(0, 3).map(activity => {
                               const isEvent = activity.activity_type === 'event' || activity.activity_type === 'class';
 
@@ -442,13 +416,13 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
                                     activity.is_completed ? 'opacity-60' : ''
                                   } ${c.workgroupBg} cursor-pointer hover:shadow-sm transition-shadow`}
                                 >
-                                  <div className="flex items-start gap-1.5">
+                                  <div className="flex gap-1.5 items-start">
                                     {/* Activity Type Icon */}
                                     <div className={`${isEvent ? 'bg-blue-100' : 'bg-orange-100'} rounded-sm p-0.5 flex-shrink-0 mt-0.5`}>
                                       {isEvent ? (
-                                        <div className="w-2 h-2 rounded-full border-2 border-blue-500"></div>
+                                        <div className="border-2 border-blue-500 h-2 rounded-full w-2"></div>
                                       ) : (
-                                        <div className="w-2 h-2 bg-orange-500"></div>
+                                        <div className="bg-orange-500 h-2 w-2"></div>
                                       )}
                                     </div>
 
@@ -458,10 +432,10 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
                                       </div>
                                       {activity.estimated_minutes > 0 && (
                                         <div className={`text-[10px] ${c.mutedText} mt-0.5 flex items-center gap-1`}>
-                                          <Clock className="w-2.5 h-2.5" />
+                                          <Clock className="h-2.5 w-2.5" />
                                           <span>{formatTime(activity.estimated_minutes)}</span>
                                           {activity.is_completed && (
-                                            <CheckCircle2 className="w-3 h-3 text-green-500 flex-shrink-0" />
+                                            <CheckCircle2 className="flex-shrink-0 h-3 text-green-500 w-3" />
                                           )}
                                         </div>
                                       )}
@@ -485,135 +459,6 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
             </tbody>
           </table>
         </div>
-      )}
-
-      {/* Calendar View - Time-based */}
-      {viewMode === 'calendar' && (
-        <div className="flex-1 overflow-auto">
-          <div className={`grid gap-0 border ${c.divider}`} style={{ gridTemplateColumns: `repeat(${weekDates.length}, 1fr)` }}>
-            {/* Day headers */}
-            {weekDates.map((date, index) => {
-              const dateStr = date.toISOString().split('T')[0];
-              const dayActivities = activities.filter(a => a.plan_date?.split('T')[0] === dateStr && a.start_time);
-              const dayTotal = dayActivities.reduce((sum, a) => sum + (a.estimated_minutes || 0), 0);
-
-              return (
-                <div
-                  key={index}
-                  className={`${isToday(date) ? `${c.checkboxChecked} text-white` : c.cardBg} border-b ${c.divider} p-2 text-center`}
-                >
-                  <div className={`text-xs font-semibold ${isToday(date) ? 'text-white' : c.moduleText}`}>{formatDate(date)}</div>
-                  {dayTotal > 0 && (
-                    <div className={`text-[10px] mt-0.5 ${isToday(date) ? 'text-white' : c.statText}`}>
-                      {formatTime(dayTotal)}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {/* Time grid spanning all columns */}
-            <div className="relative" style={{ gridColumn: `span ${weekDates.length}` }}>
-              <div className="grid" style={{ gridTemplateColumns: `auto repeat(${weekDates.length}, 1fr)` }}>
-                {/* Time labels column */}
-                <div className={c.cardBg}>
-                  {Array.from({ length: 15 }, (_, i) => i + 7).map(hour => (
-                    <div key={hour} className={`border-b ${c.divider} px-2 py-1 text-xs ${c.mutedText} flex items-center h-12`}>
-                      {hour === 12 ? '12 PM' : hour > 12 ? `${hour - 12} PM` : `${hour} AM`}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Day columns with activities */}
-                {weekDates.map((date, dayIndex) => {
-                  const dateStr = formatDateLocal(date);
-                  const dayActivities = activities.filter(a => a.plan_date?.split('T')[0] === dateStr && a.start_time);
-
-                  // Helper to convert time to minutes from midnight
-                  const timeToMinutes = (timeStr: string) => {
-                    if (!timeStr) return null;
-                    const dateObj = new Date(timeStr);
-                    return dateObj.getHours() * 60 + dateObj.getMinutes();
-                  };
-
-                  return (
-                    <div key={dayIndex} className={`border-l ${c.divider} relative`}>
-                      {/* Grid lines */}
-                      {Array.from({ length: 15 }).map((_, i) => (
-                        <div key={i} className="border-b border-gray-100 h-12" />
-                      ))}
-
-                      {/* Activities positioned absolutely */}
-                      {dayActivities.map(activity => {
-                        const startMinutes = timeToMinutes(activity.start_time);
-                        if (startMinutes === null) return null;
-
-                        // Calculate duration
-                        let duration = 60; // Default 1 hour
-                        if (activity.end_time) {
-                          const endMinutes = timeToMinutes(activity.end_time);
-                          if (endMinutes) duration = endMinutes - startMinutes;
-                        } else if (activity.estimated_minutes) {
-                          duration = activity.estimated_minutes;
-                        }
-
-                        // Calculate position (7 AM = 0px)
-                        const startHour = 7;
-                        const relativeMinutes = startMinutes - (startHour * 60);
-                        const topPosition = (relativeMinutes / 60) * 48; // 48px per hour
-                        const heightPixels = Math.max((duration / 60) * 48, 12);
-
-                        // Format time for display
-                        const formatDisplayTime = (timeStr: string) => {
-                          if (!timeStr) return '';
-                          const date = new Date(timeStr);
-                          const hours = date.getHours();
-                          const minutes = date.getMinutes();
-                          const ampm = hours >= 12 ? 'PM' : 'AM';
-                          const displayHour = hours > 12 ? hours - 12 : hours === 0 ? 12 : hours;
-                          return `${displayHour}:${minutes.toString().padStart(2, '0')} ${ampm}`;
-                        };
-
-                        const startTime = formatDisplayTime(activity.start_time);
-                        const endTime = activity.end_time ? formatDisplayTime(activity.end_time) : '';
-
-                        return (
-                          <div
-                            key={activity.id}
-                            draggable
-                            onDragStart={() => handleDragStart(activity)}
-                            className={`absolute left-0 right-0 mx-1 px-2 py-1.5 rounded border-2 ${c.moduleBorder} ${
-                              activity.is_completed ? 'opacity-60' : ''
-                            } ${c.workgroupBg} cursor-move hover:shadow-md transition-shadow z-10`}
-                            style={{
-                              top: `${topPosition}px`,
-                              height: `${heightPixels}px`,
-                              minHeight: '20px'
-                            }}
-                            onClick={() => openActivityModal(activity)}
-                          >
-                            <div className={`font-semibold leading-tight mb-1 text-[11px] ${activity.is_completed ? 'line-through text-gray-500' : c.moduleText}`}>
-                              {activity.title}
-                            </div>
-                            <div className="flex items-center justify-between text-[10px]">
-                              <span className={`font-medium ${c.mutedText}`}>
-                                {startTime}{endTime && ` - ${endTime}`}
-                              </span>
-                              {activity.is_completed && (
-                                <CheckCircle2 className="w-3 h-3 text-green-500" />
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Activity Modal */}
       <ActivityModal

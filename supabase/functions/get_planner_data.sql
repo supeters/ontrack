@@ -41,11 +41,15 @@ BEGIN
       'course_webpage', c.course_webpage,
       'teacher', c.teacher,
       'course_code', c.course_code,
-      'source_type', c.source_type
+      'source_type', c.source_type,
+      'school_id', c.school_id,
+      'school_nickname', s.nickname,
+      'school_name', s.name
     ) ORDER BY c.course_name
   )
   INTO v_courses
   FROM public.courses c
+  LEFT JOIN public.schools s ON c.school_id = s.id
   WHERE c.kid_id = p_kid_id
     AND c.is_active = true
     AND EXISTS (

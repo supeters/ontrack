@@ -1,6 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/lib/supabase/client';
 
+// GET /api/activities - Fetch activities by query params
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const parentId = searchParams.get('parent_id');
+    const kidId = searchParams.get('kid_id');
+    const courseId = searchParams.get('course_id');
+
+    const supabase = await getServerClient();
+    let query = supabase
+      .from('activities')
+      .select('*')
+      .eq('is_deleted', false);
+
+    if (parentId) {
+      query = query.eq('parent_activity_id', parentId);
+    }
+    if (kidId) {
+      query = query.eq('kid_id', kidId);
+    }
+    if (courseId) {
+      query = query.eq('course_id', courseId);
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching activities:', error);
+      throw error;
+    }
+
+    return NextResponse.json(data || []);
+  } catch (error: any) {
+    console.error('API /api/activities GET error:', error);
+    return NextResponse.json(
+      { error: error.message || String(error) },
+      { status: 500 }
+    );
+  }
+}
+
 // PATCH /api/activities - Update an activity
 export async function PATCH(request: NextRequest) {
   try {
@@ -52,6 +93,7 @@ export async function POST(request: NextRequest) {
       startTime,
       endTime,
       isActionable,
+      parentActivityId,
     } = body;
 
     if (!kidId || !title || !activityType) {
@@ -80,6 +122,7 @@ export async function POST(request: NextRequest) {
         estimated_minutes: estimatedMinutes,
         start_time: startTime,
         end_time: endTime,
+        parent_activity_id: parentActivityId,
         is_action_override: isActionValue,
         is_completed: false,
         is_deleted: false,

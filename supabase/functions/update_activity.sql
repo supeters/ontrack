@@ -23,11 +23,13 @@ BEGIN
       ELSE completed_at
     END,
     actual_minutes = COALESCE((p_updates->>'actual_minutes')::INTEGER, actual_minutes),
+    estimated_minutes = COALESCE((p_updates->>'estimated_minutes')::INTEGER, estimated_minutes),
     start_time = COALESCE((p_updates->>'start_time')::TIMESTAMP, start_time),
     end_time = COALESCE((p_updates->>'end_time')::TIMESTAMP, end_time),
     plan_date = COALESCE((p_updates->>'plan_date')::DATE, plan_date),
     title = COALESCE(p_updates->>'title', title),
     description = COALESCE(p_updates->>'description', description),
+    is_action_override = COALESCE((p_updates->>'is_action_override')::BOOLEAN, is_action_override),
     is_pinned = COALESCE((p_updates->>'is_pinned')::BOOLEAN, is_pinned),
     updated_at = NOW()
   WHERE id = p_activity_id

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Calendar, Clock, Save, Trash2, ExternalLink } from 'lucide-react';
+import { X, Calendar, Clock, Save, Trash2, ExternalLink, Edit2, Plus, FileText } from 'lucide-react';
 import { formatTime12Hour } from '@/lib/datetime';
 
 interface Activity {
@@ -17,6 +17,8 @@ interface Activity {
   activity_type: string;
   resource_url?: string;
   lms_url?: string;
+  parent_activity_id?: number;
+  course_id?: number;
 }
 
 interface ActivityDetailModalProps {
@@ -30,9 +32,39 @@ export default function ActivityDetailModal({
   onClose,
   onUpdate,
 }: ActivityDetailModalProps) {
-  const [editMode, setEditMode] = useState(false);
   const [editedActivity, setEditedActivity] = useState(activity);
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState('details');
+  const [hasSelectedText, setHasSelectedText] = useState(false);
+  const [showCreateTaskForm, setShowCreateTaskForm] = useState(false);
+  const [newTaskData, setNewTaskData] = useState({ title: '', description: '', planDate: '' });
+  const [children, setChildren] = useState<Activity[]>([]);
+  const [isActionable, setIsActionable] = useState((activity as any).is_action || false);
+  const [hasChanges, setHasChanges] = useState(false);
+
+  // Update isActionable when activity prop changes
+  useEffect(() => {
+    setIsActionable((activity as any).is_action || false);
+  }, [(activity as any).is_action]);
+
+  // Load child activities
+  useEffect(() => {
+    const loadChildren = async () => {
+      try {
+        const response = await fetch(`/api/activities?parent_id=${activity.id}`);
+        if (response.ok) {
+          const data = await response.json();
+          setChildren(data || []);
+        }
+      } catch (error) {
+        console.error('Error loading children:', error);
+      }
+    };
+
+    if (activity.id) {
+      loadChildren();
+    }
+  }, [activity.id]);
 
   const saveChanges = async () => {
     setSaving(true);
@@ -46,18 +78,25 @@ export default function ActivityDetailModal({
             description: editedActivity.description,
             plan_date: editedActivity.plan_date,
             estimated_minutes: editedActivity.estimated_minutes,
+            is_action_override: isActionable,
           },
         }),
       });
 
-      setEditMode(false);
+      setHasChanges(false);
       if (onUpdate) onUpdate();
+      onClose();
     } catch (error) {
       console.error('Error saving:', error);
       alert('Failed to save changes');
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleFieldChange = (field: string, value: any) => {
+    setEditedActivity({ ...editedActivity, [field]: value });
+    setHasChanges(true);
   };
 
   const deleteActivity = async () => {
@@ -75,205 +114,387 @@ export default function ActivityDetailModal({
     }
   };
 
+  const createTask = async () => {
+    if (!newTaskData.title.trim()) {
+      alert('Please enter a title');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const response = await fetch('/api/activities', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kidId: (activity as any).kid_id,
+          courseId: activity.course_id,
+          title: newTaskData.title,
+          description: newTaskData.description,
+          activityType: 'task',
+          planDate: newTaskData.planDate || null,
+          isActionable: true,
+          parentActivityId: activity.id,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create task');
+      }
+
+      setShowCreateTaskForm(false);
+      setNewTaskData({ title: '', description: '', planDate: '' });
+      if (onUpdate) onUpdate();
+
+      // Reload children
+      const childrenResponse = await fetch(`/api/activities?parent_id=${activity.id}`);
+      if (childrenResponse.ok) {
+        const data = await childrenResponse.json();
+        setChildren(data || []);
+      }
+    } catch (error: any) {
+      console.error('Error creating task:', error);
+      alert(`Failed to create task: ${error.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <h2 className="text-xl font-semibold">{activity.title}</h2>
+        <div className="flex items-center justify-between px-6 py-4 border-b bg-gray-50">
+          <h2 className="text-xl font-semibold text-gray-900">{activity.title}</h2>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+            className="p-2 hover:bg-gray-200 rounded-full transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {/* Tabs */}
+        <div className="border-b bg-gray-50 px-6">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setActiveTab('details')}
+              className={`px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                activeTab === 'details'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              Details
+            </button>
+            <button
+              onClick={() => setActiveTab('tasks')}
+              className={`px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                activeTab === 'tasks'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              Tasks {children.length > 0 && `(${children.length})`}
+            </button>
+          </div>
+        </div>
+
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          {/* Activity Type Badge */}
-          <div className="mb-4">
-            <span className="inline-block px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full">
-              {activity.activity_type}
-            </span>
-          </div>
+          {activeTab === 'details' && (
+            <div className="space-y-4">
+              {/* Activity Type and URL Buttons */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  {/* Activity Type and Actionable Toggle */}
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center">
+                      <span className="font-medium mr-3 text-gray-600 text-sm">Type:</span>
+                      <span className="inline-block px-3 py-1 bg-blue-100 text-blue-800 text-sm font-semibold rounded-full capitalize">
+                        {activity.activity_type}
+                      </span>
+                    </div>
 
-          {/* Date and Time */}
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            {editMode ? (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <Calendar className="w-4 h-4 inline mr-1" />
-                  Plan Date
-                </label>
-                <input
-                  type="date"
-                  value={editedActivity.plan_date || ''}
-                  onChange={(e) =>
-                    setEditedActivity({ ...editedActivity, plan_date: e.target.value })
-                  }
-                  className="w-full border rounded px-3 py-2"
-                />
-              </div>
-            ) : (
-              activity.plan_date && (
-                <div>
-                  <div className="text-sm text-gray-600">
-                    <Calendar className="w-4 h-4 inline mr-1" />
-                    Plan Date
+                    {/* Actionable Toggle */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsActionable(!isActionable);
+                        setHasChanges(true);
+                      }}
+                      className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                        isActionable
+                          ? 'bg-green-100 text-green-800 hover:bg-green-200'
+                          : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                      }`}
+                      title={isActionable ? 'Remove from my tasks' : 'Add to my tasks'}
+                    >
+                      {isActionable ? '✓ Actionable' : 'Not Actionable'}
+                    </button>
                   </div>
-                  <div className="font-medium">
-                    {new Date(activity.plan_date + 'T00:00:00').toLocaleDateString()}
+
+                  {/* URL Buttons */}
+                  <div className="flex gap-2">
+                    {(activity.lms_url || activity.resource_url) && (
+                      <a
+                        href={activity.lms_url || activity.resource_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-blue-600 flex font-medium hover:bg-blue-700 items-center px-3 py-2 rounded-lg text-sm text-white transition-colors"
+                      >
+                        <ExternalLink className="h-4 mr-1 w-4" />
+                        Open in Moodle
+                      </a>
+                    )}
                   </div>
                 </div>
-              )
-            )}
-
-            {activity.start_time && (
-              <div>
-                <div className="text-sm text-gray-600">
-                  <Clock className="w-4 h-4 inline mr-1" />
-                  Time
-                </div>
-                <div className="font-medium">
-                  {formatTime12Hour(activity.start_time)}
-                  {activity.end_time && ` - ${formatTime12Hour(activity.end_time)}`}
-                </div>
               </div>
-            )}
-          </div>
 
-          {/* Estimated vs Actual Minutes */}
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            {editMode ? (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Estimated Minutes
-                </label>
-                <input
-                  type="number"
-                  value={editedActivity.estimated_minutes || ''}
-                  onChange={(e) =>
-                    setEditedActivity({
-                      ...editedActivity,
-                      estimated_minutes: parseInt(e.target.value) || 0,
-                    })
-                  }
-                  className="w-full border rounded px-3 py-2"
-                />
-              </div>
-            ) : (
-              activity.estimated_minutes && (
-                <div>
-                  <div className="text-sm text-gray-600">Estimated</div>
-                  <div className="font-medium">{activity.estimated_minutes} min</div>
+              {/* Date and Time - Only show if actionable */}
+              {isActionable && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <Calendar className="w-4 h-4 inline mr-1" />
+                      Plan Date
+                    </label>
+                    <input
+                      type="date"
+                      value={editedActivity.plan_date || ''}
+                      onChange={(e) => handleFieldChange('plan_date', e.target.value)}
+                      className="w-full border rounded px-3 py-2"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Estimated Minutes
+                    </label>
+                    <input
+                      type="number"
+                      value={editedActivity.estimated_minutes || ''}
+                      onChange={(e) => handleFieldChange('estimated_minutes', parseInt(e.target.value) || 0)}
+                      className="w-full border rounded px-3 py-2"
+                    />
+                  </div>
                 </div>
-              )
-            )}
-
-            {activity.actual_minutes && (
-              <div>
-                <div className="text-sm text-gray-600">Actual</div>
-                <div className="font-medium text-green-600">
-                  {activity.actual_minutes} min
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Description */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Description
-            </label>
-            {editMode ? (
-              <textarea
-                value={editedActivity.description || ''}
-                onChange={(e) =>
-                  setEditedActivity({ ...editedActivity, description: e.target.value })
-                }
-                rows={4}
-                className="w-full border rounded px-3 py-2"
-                placeholder="Add description..."
-              />
-            ) : (
-              <div className="text-gray-700 whitespace-pre-wrap">
-                {activity.description || <em className="text-gray-400">No description</em>}
-              </div>
-            )}
-          </div>
-
-          {/* Links */}
-          {(activity.resource_url || activity.lms_url) && (
-            <div className="mb-4">
-              <div className="text-sm font-medium text-gray-700 mb-2">Links</div>
-              {activity.resource_url && (
-                <a
-                  href={activity.resource_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-blue-600 hover:text-blue-800 mb-1"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  Resource
-                </a>
               )}
-              {activity.lms_url && (
-                <a
-                  href={activity.lms_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-blue-600 hover:text-blue-800"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  LMS Assignment
-                </a>
+
+              {/* Description with Text Selection - Always shows HTML */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Description
+                  </label>
+                  {activity.description && (
+                    <button
+                      onClick={() => {
+                        const selectedText = window.getSelection()?.toString().trim();
+                        if (selectedText) {
+                          const lines = selectedText.split('\n').filter(line => line.trim());
+                          setNewTaskData({
+                            title: lines[0]?.trim() || selectedText.substring(0, 50),
+                            description: lines.length > 1 ? lines.slice(1).join('\n').trim() : '',
+                            planDate: activity.plan_date || '',
+                          });
+                        } else {
+                          setNewTaskData({
+                            title: '',
+                            description: '',
+                            planDate: activity.plan_date || '',
+                          });
+                        }
+                        setShowCreateTaskForm(true);
+                      }}
+                      className={`px-3 py-1 text-white text-xs rounded-md font-medium transition-colors ${
+                        hasSelectedText
+                          ? 'bg-blue-600 hover:bg-blue-700 animate-pulse'
+                          : 'bg-green-600 hover:bg-green-700'
+                      }`}
+                    >
+                      <Plus className="w-3 h-3 inline mr-1" />
+                      ✨ Create Task {hasSelectedText && '(with selected text)'}
+                    </button>
+                  )}
+                </div>
+
+                {activity.description && activity.description.trim() ? (
+                  <>
+                    <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
+                      <div
+                        className="prose prose-sm max-w-none text-gray-800 cursor-text select-text"
+                        dangerouslySetInnerHTML={{ __html: activity.description }}
+                        onMouseUp={() => {
+                          setTimeout(() => {
+                            const selectedText = window.getSelection()?.toString().trim();
+                            setHasSelectedText((selectedText || '').length > 0);
+                          }, 10);
+                        }}
+                      />
+                    </div>
+                    <div className="italic mt-2 text-gray-500 text-xs">
+                      💡 {hasSelectedText
+                        ? '✅ Text selected! Click "Create Task" button above.'
+                        : 'Select text above, then click "Create Task" to split this into a separate task'}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-gray-400 italic text-sm">No description available</div>
+                )}
+              </div>
+
+              {/* Create Task Form */}
+              {showCreateTaskForm && (
+                <div className="bg-green-50 border border-green-200 p-4 rounded-lg">
+                  <h3 className="font-semibold text-gray-900 mb-3">Create New Task</h3>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Title
+                      </label>
+                      <input
+                        type="text"
+                        value={newTaskData.title}
+                        onChange={(e) => setNewTaskData({ ...newTaskData, title: e.target.value })}
+                        className="w-full border rounded px-3 py-2"
+                        placeholder="Task title..."
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Description (optional)
+                      </label>
+                      <textarea
+                        value={newTaskData.description}
+                        onChange={(e) => setNewTaskData({ ...newTaskData, description: e.target.value })}
+                        rows={3}
+                        className="w-full border rounded px-3 py-2"
+                        placeholder="Task description..."
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Plan Date
+                      </label>
+                      <input
+                        type="date"
+                        value={newTaskData.planDate}
+                        onChange={(e) => setNewTaskData({ ...newTaskData, planDate: e.target.value })}
+                        className="w-full border rounded px-3 py-2"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={createTask}
+                        disabled={saving}
+                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors disabled:opacity-50"
+                      >
+                        <Plus className="w-4 h-4" />
+                        {saving ? 'Creating...' : 'Create Task'}
+                      </button>
+                      <button
+                        onClick={() => setShowCreateTaskForm(false)}
+                        className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'tasks' && (
+            <div className="space-y-3">
+              {children.length === 0 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">No tasks created yet</p>
+                  <p className="text-xs mt-1">Switch to Details tab to create tasks from selected text</p>
+                </div>
+              ) : (
+                children.map((child) => (
+                  <div key={child.id} className="bg-gray-50 p-3 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={child.is_completed}
+                        onChange={async () => {
+                          await fetch('/api/activities', {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              activityId: child.id,
+                              updates: { is_completed: !child.is_completed },
+                            }),
+                          });
+                          const response = await fetch(`/api/activities?parent_id=${activity.id}`);
+                          if (response.ok) {
+                            const data = await response.json();
+                            setChildren(data || []);
+                          }
+                        }}
+                        className="mt-1"
+                      />
+                      <div className="flex-1">
+                        <div className={`font-medium ${child.is_completed ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+                          {child.title}
+                        </div>
+                        {child.description && (
+                          <div className="text-sm text-gray-600 mt-1">{child.description}</div>
+                        )}
+                        {child.plan_date && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            {new Date(child.plan_date + 'T00:00:00').toLocaleDateString()}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
               )}
             </div>
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t bg-gray-50">
-          <button
-            onClick={deleteActivity}
-            className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded transition-colors"
-          >
-            <Trash2 className="w-4 h-4" />
-            Delete
-          </button>
-
-          <div className="flex gap-2">
-            {editMode ? (
-              <>
-                <button
-                  onClick={() => {
-                    setEditMode(false);
-                    setEditedActivity(activity);
-                  }}
-                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={saveChanges}
-                  disabled={saving}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:opacity-50"
-                >
-                  <Save className="w-4 h-4" />
-                  {saving ? 'Saving...' : 'Save'}
-                </button>
-              </>
-            ) : (
+        {/* Footer - Always visible with Delete/Save/Cancel */}
+        {activeTab === 'details' && (
+          <div className="flex items-center justify-between px-6 py-4 border-t bg-gray-50">
+            {/* Delete button - only for non-synced items */}
+            {!(activity as any).lms_source && (
               <button
-                onClick={() => setEditMode(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                onClick={deleteActivity}
+                className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded transition-colors"
               >
-                Edit
+                <Trash2 className="w-4 h-4" />
+                Delete
               </button>
             )}
+            {(activity as any).lms_source && <div />}
+
+            {/* Save and Cancel buttons */}
+            <div className="flex gap-2">
+              <button
+                onClick={onClose}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveChanges}
+                disabled={saving || !hasChanges}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                <Save className="w-4 h-4" />
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
