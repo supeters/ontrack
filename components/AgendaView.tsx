@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Calendar, Clock, CheckCircle2, Plus, GraduationCap } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Calendar, Clock, CheckCircle2, Plus, GraduationCap, ChevronDown } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import ActivityModal from './ActivityModal';
 import CourseSetupModal from './CourseSetupModal';
@@ -10,17 +10,22 @@ import { parseLocalTimestamp } from '@/lib/datetime';
 
 interface AgendaViewProps {
   kidId: number;
+  selectedDate: Date;
 }
 
-export default function AgendaView({ kidId }: AgendaViewProps) {
+export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
   const { theme } = useTheme();
   const c = theme.colors;
 
   const [loading, setLoading] = useState(true);
-  const [selectedDate, setSelectedDate] = useState(new Date());
   const [courses, setCourses] = useState<any[]>([]);
+  const [overdueActivities, setOverdueActivities] = useState<any[]>([]);
+  const [todayActivities, setTodayActivities] = useState<any[]>([]);
+  const [currentModuleActivities, setCurrentModuleActivities] = useState<any[]>([]);
+  const [nextModuleActivities, setNextModuleActivities] = useState<any[]>([]);
   const [scheduledClasses, setScheduledClasses] = useState<any[]>([]);
-  const [expandedCourses, setExpandedCourses] = useState<Set<number>>(new Set());
+  const [activeBucket, setActiveBucket] = useState<'overdue' | 'today' | 'current' | 'next'>('overdue');
+  const [collapsedCourses, setCollapsedCourses] = useState<Set<number>>(new Set());
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [draggedItem, setDraggedItem] = useState<any>(null);
@@ -34,11 +39,7 @@ export default function AgendaView({ kidId }: AgendaViewProps) {
     String(selectedDate.getMonth() + 1).padStart(2, '0') + '-' +
     String(selectedDate.getDate()).padStart(2, '0');
 
-  useEffect(() => {
-    if (kidId) loadAgendaData();
-  }, [kidId, selectedDate]);
-
-  const loadAgendaData = async () => {
+  const loadAgendaData = useCallback(async () => {
     setLoading(true);
     try {
       const response = await fetch(`/api/agenda?kidId=${kidId}&date=${selectedDateStr}`);
@@ -50,6 +51,7 @@ export default function AgendaView({ kidId }: AgendaViewProps) {
       data.courses?.forEach((course: any) => {
         courseMap.set(course.id, {
           ...course,
+          name: course.name || course.course_name || course.courseName || '',
           todayActivities: [],
           overdueActivities: [],
         });
@@ -68,13 +70,16 @@ export default function AgendaView({ kidId }: AgendaViewProps) {
         }
       });
 
-      // Show courses that are either scheduled today OR have activities
       const coursesToShow = Array.from(courseMap.values()).filter((course: any) => {
         const hasActivities = course.todayActivities.length > 0 || course.overdueActivities.length > 0;
         return course.scheduled_today || hasActivities;
       });
 
       setCourses(coursesToShow);
+      setOverdueActivities(data.overdue_activities || []);
+      setTodayActivities(data.today_activities || []);
+      setCurrentModuleActivities(data.current_module_activities || []);
+      setNextModuleActivities(data.next_module_activities || []);
 
       // Combine scheduled classes (events) with scheduled activities (tasks with start_time)
       const scheduledActivities = data.today_activities?.filter((a: any) => a.start_time) || [];
@@ -84,16 +89,20 @@ export default function AgendaView({ kidId }: AgendaViewProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [kidId, selectedDateStr]);
+
+  useEffect(() => {
+    if (kidId) loadAgendaData();
+  }, [kidId, selectedDate, loadAgendaData]);
 
   const toggleCourse = (courseId: number) => {
-    const newExpanded = new Set(expandedCourses);
-    if (newExpanded.has(courseId)) {
-      newExpanded.delete(courseId);
+    const newCollapsed = new Set(collapsedCourses);
+    if (newCollapsed.has(courseId)) {
+      newCollapsed.delete(courseId);
     } else {
-      newExpanded.add(courseId);
+      newCollapsed.add(courseId);
     }
-    setExpandedCourses(newExpanded);
+    setCollapsedCourses(newCollapsed);
   };
 
   const openActivityModal = (activity: any) => {
@@ -146,7 +155,7 @@ export default function AgendaView({ kidId }: AgendaViewProps) {
     setDraggedItem({ ...item, dragType: type });
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
   };
 
@@ -198,6 +207,50 @@ export default function AgendaView({ kidId }: AgendaViewProps) {
     }
   };
 
+  const activeBucketItems = useMemo(() => {
+    switch (activeBucket) {
+      case 'today':
+        return todayActivities;
+      case 'current':
+        return currentModuleActivities;
+      case 'next':
+        return nextModuleActivities;
+      default:
+        return overdueActivities;
+    }
+  }, [activeBucket, overdueActivities, todayActivities, currentModuleActivities, nextModuleActivities]);
+
+  const groupedActivitiesByCourse = useMemo(() => {
+    const groups: Record<string, { courseId: number; courseName: string; activities: any[] }> = {};
+
+    (activeBucketItems || []).forEach((activity: any) => {
+      const courseId = activity.course_id ?? 0;
+      const courseName = activity.course_name || activity.course?.name || 'No course assigned';
+      const key = `${courseId}`;
+
+      if (!groups[key]) {
+        groups[key] = { courseId, courseName, activities: [] };
+      }
+      groups[key].activities.push(activity);
+    });
+
+    const grouped = Object.values(groups);
+
+    grouped.forEach((group) => {
+      group.activities.sort((a: any, b: any) => {
+        const moduleA = (a.module_title || '').toLowerCase();
+        const moduleB = (b.module_title || '').toLowerCase();
+        if (moduleA < moduleB) return -1;
+        if (moduleA > moduleB) return 1;
+        const titleA = (a.title || '').toLowerCase();
+        const titleB = (b.title || '').toLowerCase();
+        return titleA.localeCompare(titleB);
+      });
+    });
+
+    return grouped.sort((a, b) => a.courseName.localeCompare(b.courseName));
+  }, [activeBucketItems]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -232,129 +285,147 @@ export default function AgendaView({ kidId }: AgendaViewProps) {
               <GraduationCap className="w-4 h-4" />
               New Course
             </button>
-            <input
-              type="date"
-              value={selectedDateStr}
-              onChange={(e) => setSelectedDate(new Date(e.target.value + 'T12:00:00'))}
-              className={`px-4 py-2 border ${c.moduleBorder} rounded-lg ${c.moduleText} ${c.cardBg}`}
-            />
           </div>
         </div>
       </div>
 
       {/* Two Column Layout */}
       <div className="flex-1 flex overflow-hidden">
-        {/* LEFT: Courses & Tasks (3/4 width) */}
+        {/* LEFT: Agenda Buckets (3/4 width) */}
         <div className={`w-3/4 border-r ${c.divider} overflow-y-auto p-4`}>
           <h2 className={`text-sm font-semibold ${c.moduleText} mb-3 flex items-center gap-2`}>
             <Calendar className={`w-4 h-4 ${c.moduleIcon}`} />
-            Courses & Tasks
+            My Agenda
           </h2>
 
-          <div className="space-y-2">
-            {courses.map((course) => {
-              const allActivities = [...course.todayActivities, ...course.overdueActivities];
-              const todayCompleted = course.todayActivities.filter((a: any) => a.is_completed).length;
-              const todayPending = course.todayActivities.length - todayCompleted;
-              const overdueCount = course.overdueActivities.length;
-              const isExpanded = expandedCourses.has(course.id);
-
-              // Course already filtered - show if scheduled today OR has activities
-
-              return (
-                <div
-                  key={course.id}
-                  className={`border ${c.moduleBorder} rounded-lg ${c.cardBg} overflow-hidden`}
-                  draggable
-                  onDragStart={() => handleDragStart(course, 'course')}
-                >
-                  <div className={`p-3 flex items-center justify-between ${c.moduleHeader} cursor-move`}>
-                    <button
-                      onClick={() => toggleCourse(course.id)}
-                      className="flex-1 text-left"
-                    >
-                      <div className={`font-medium text-sm ${c.moduleText}`}>{course.course_name}</div>
-                      <div className={`text-xs ${c.mutedText}`}>{course.subject}</div>
-                    </button>
-                    <div className="flex items-center gap-2">
-                      <div className={`text-xs ${c.statText}`}>
-                        {todayCompleted > 0 && (
-                          <><span className="font-semibold text-green-600">{todayCompleted}</span> done{todayPending > 0 || overdueCount > 0 ? ', ' : ''}</>
-                        )}
-                        {todayPending > 0 && (
-                          <><span className="font-semibold">{todayPending}</span> planned{overdueCount > 0 ? ', ' : ''}</>
-                        )}
-                        {todayCompleted === 0 && todayPending === 0 && overdueCount === 0 && (
-                          <><span className="font-semibold">0</span> planned</>
-                        )}
-                        {overdueCount > 0 && (
-                          <><span className="font-semibold text-red-500">{overdueCount}</span> overdue</>
-                        )}
-                      </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          addQuickTask(course.id, course.course_name);
-                        }}
-                        className={`p-1 rounded hover:bg-opacity-20 ${c.checkboxChecked.split(' ')[0]} transition-colors`}
-                        title="Add quick task"
-                      >
-                        <Plus className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {isExpanded && (
-                    <div className={`border-t ${c.divider} ${c.workgroupBg}`}>
-                      {allActivities.length === 0 ? (
-                        <div className={`p-3 text-sm ${c.mutedText}`}>
-                          No work planned
-                        </div>
-                      ) : (
-                        allActivities.map((activity: any) => {
-                          const isOverdue = course.overdueActivities.includes(activity);
-
-                          return (
-                            <div
-                              key={activity.id}
-                              draggable
-                              onDragStart={() => handleDragStart(activity, 'activity')}
-                              onClick={() => openActivityModal(activity)}
-                              className={`w-full p-2 flex items-center gap-2 ${c.activityHover} border-b ${c.divider} last:border-0 hover:bg-opacity-10 transition-colors cursor-move`}
-                            >
-                              <div
-                                className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                                  activity.is_completed ? c.checkboxChecked : c.checkboxBorder
-                                }`}
-                              >
-                                {activity.is_completed && (
-                                  <CheckCircle2 className="w-3 h-3 text-white" />
-                                )}
-                              </div>
-                              <div className="flex-1 text-left min-w-0">
-                                <span
-                                  className={`text-sm block ${
-                                    activity.is_completed ? 'line-through text-gray-400' : c.activityText
-                                  }`}
-                                >
-                                  {activity.title}
-                                </span>
-                                {isOverdue && activity.plan_date && (
-                                  <span className="text-[10px] text-red-500 mt-0.5 block">
-                                    Due: {new Date(activity.plan_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+          <div className="mb-4 rounded-2xl border bg-white/5 p-2 flex flex-wrap gap-2">
+            {[
+              { key: 'overdue', label: 'Overdue', count: overdueActivities.length },
+              { key: 'today', label: 'Today', count: todayActivities.length },
+              { key: 'current', label: 'Current module', count: currentModuleActivities.length },
+              { key: 'next', label: 'Next module', count: nextModuleActivities.length },
+            ].map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveBucket(tab.key as typeof activeBucket)}
+                className={`rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                  activeBucket === tab.key
+                    ? `${c.checkboxChecked} text-white`
+                    : `${c.moduleText} border border-transparent hover:border-slate-300/40 hover:bg-slate-100/10`
+                }`}
+              >
+                {tab.label}
+                <span className="ml-2 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-slate-200/80 px-2 text-xs font-semibold text-slate-700">
+                  {tab.count}
+                </span>
+              </button>
+            ))}
           </div>
+
+          {(() => {
+            const bucket = {
+              overdue: {
+                title: 'Overdue tasks',
+                activities: overdueActivities,
+                emptyText: 'No overdue tasks. Great job staying on track!',
+                badgeColor: 'bg-red-500 text-white',
+              },
+              today: {
+                title: 'Tasks planned for today',
+                activities: todayActivities,
+                emptyText: 'No tasks planned for today yet.',
+                badgeColor: 'bg-blue-600 text-white',
+              },
+              current: {
+                title: 'Tasks in current module',
+                activities: currentModuleActivities,
+                emptyText: 'No current module tasks found.',
+                badgeColor: 'bg-emerald-600 text-white',
+              },
+              next: {
+                title: 'Tasks in next module',
+                activities: nextModuleActivities,
+                emptyText: 'No upcoming module tasks yet.',
+                badgeColor: 'bg-slate-600 text-white',
+              },
+            }[activeBucket];
+
+            return (
+              <div className={`border ${c.moduleBorder} rounded-2xl ${c.cardBg} p-4 space-y-3`}>
+                {bucket.activities.length === 0 ? (
+                  <div className={`rounded-xl border ${c.divider} p-4 text-sm ${c.mutedText}`}>
+                    {bucket.emptyText}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {groupedActivitiesByCourse.map((group) => {
+                      const isExpanded = !collapsedCourses.has(group.courseId);
+                      const moduleTitles = Array.from(
+                        new Set(
+                          group.activities
+                            .map((activity) => activity.module_title)
+                            .filter(Boolean)
+                        )
+                      );
+
+                      return (
+                        <div key={`${group.courseId}-${group.courseName}`} className="space-y-3">
+                          <button
+                            type="button"
+                            onClick={() => toggleCourse(group.courseId)}
+                            className={`w-full rounded-2xl border ${c.moduleBorder} bg-slate-50/50 p-3 text-left flex items-center justify-between gap-3`}
+                          >
+                            <div>
+                              <div className="text-sm font-semibold text-slate-900">{group.courseName}</div>
+                              {moduleTitles.length > 0 && (
+                                <div className="mt-1 text-[11px] text-slate-500">
+                                  {moduleTitles.join(' • ')}
+                                </div>
+                              )}
+                            </div>
+                            <ChevronDown className={`w-4 h-4 text-slate-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                          </button>
+
+                          {isExpanded && (
+                            <div className="space-y-2">
+                              {group.activities.map((activity: any) => {
+                                const planDate = activity.plan_date ? new Date(activity.plan_date).toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                }) : null;
+
+                                return (
+                                  <button
+                                    key={activity.id}
+                                    onClick={() => openActivityModal(activity)}
+                                    className={`w-full text-left rounded-xl border ${c.divider} p-3 ${c.activityHover} transition-colors hover:bg-opacity-10`}
+                                  >
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className={`text-sm font-medium ${c.activityText}`}>{activity.title}</span>
+                                      {planDate && (
+                                        <span className="text-[11px] text-gray-500 tracking-wide">{planDate}</span>
+                                      )}
+                                    </div>
+                                    <div className="mt-2 text-xs text-gray-500">
+                                      {activity.module_title ? `Module: ${activity.module_title}` : 'No module'}
+                                    </div>
+                                    <div className="mt-2 flex items-center justify-between gap-3 text-xs text-gray-500">
+                                      <span>{group.courseName || 'No course assigned'}</span>
+                                      {activity.is_completed ? <span className="text-emerald-600 font-semibold">Done</span> : <span className="text-slate-700">Actionable</span>}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* RIGHT: Schedule (1/4 width) */}

@@ -8,16 +8,17 @@ import { formatDateLocal } from '@/lib/datetime';
 
 interface PlannerViewProps {
   kidId: number;
+  selectedDate: Date;
+  setSelectedDate: (date: Date) => void;
 }
 
-export default function PlannerView({ kidId }: PlannerViewProps) {
+export default function PlannerView({ kidId, selectedDate, setSelectedDate }: PlannerViewProps) {
   const { theme } = useTheme();
   const c = theme.colors;
 
   const [activities, setActivities] = useState<any[]>([]);
   const [courses, setCourses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentWeekStart, setCurrentWeekStart] = useState(getStartOfWeek(new Date()));
   const [hideWeekends, setHideWeekends] = useState(true);
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -33,6 +34,8 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
   }
 
   // Get week dates
+  const currentWeekStart = useMemo(() => getStartOfWeek(selectedDate), [selectedDate]);
+
   const weekDates = useMemo(() => {
     const dates = [];
     for (let i = 0; i < 7; i++) {
@@ -160,19 +163,19 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
 
   // Navigate weeks
   const goToPrevWeek = () => {
-    const newDate = new Date(currentWeekStart);
+    const newDate = new Date(selectedDate);
     newDate.setDate(newDate.getDate() - 7);
-    setCurrentWeekStart(getStartOfWeek(newDate));
+    setSelectedDate(newDate);
   };
 
   const goToNextWeek = () => {
-    const newDate = new Date(currentWeekStart);
+    const newDate = new Date(selectedDate);
     newDate.setDate(newDate.getDate() + 7);
-    setCurrentWeekStart(getStartOfWeek(newDate));
+    setSelectedDate(newDate);
   };
 
   const goToToday = () => {
-    setCurrentWeekStart(getStartOfWeek(new Date()));
+    setSelectedDate(new Date());
   };
 
   const isToday = (date: Date) => {
@@ -307,19 +310,20 @@ export default function PlannerView({ kidId }: PlannerViewProps) {
                       <label className={`block ${c.moduleText} mb-2`}>Jump to date:</label>
                       <input
                         type="date"
+                        value={formatDateLocal(selectedDate)}
                         onChange={(e) => {
                           if (e.target.value) {
-                            setCurrentWeekStart(getStartOfWeek(new Date(e.target.value + 'T12:00:00')));
+                            setSelectedDate(new Date(e.target.value + 'T12:00:00'));
                             setShowDatePicker(false);
                           }
                         }}
                         className={`w-full px-3 py-2 border ${c.moduleBorder} rounded-lg ${c.cardBg} ${c.moduleText}`}
                       />
                     </div>
-                    <div className="${c.divider} border-t flex gap-2 mt-3 pt-3">
+                    <div className={`border-t ${c.divider} flex gap-2 mt-3 pt-3`}>
                       <button
                         onClick={() => {
-                          setCurrentWeekStart(getStartOfWeek(new Date()));
+                          setSelectedDate(new Date());
                           setShowDatePicker(false);
                         }}
                         className={`flex-1 px-3 py-1.5 text-xs ${c.checkboxChecked} text-white rounded hover:opacity-90 transition-opacity`}

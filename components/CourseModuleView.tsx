@@ -28,9 +28,10 @@ import { formatDateLocal } from '@/lib/datetime';
 interface CourseModuleViewProps {
   course: any;
   kidId: number;
+  selectedDate: Date;
 }
 
-export default function CourseModuleView({ course, kidId }: CourseModuleViewProps) {
+export default function CourseModuleView({ course, kidId, selectedDate }: CourseModuleViewProps) {
   const { theme } = useTheme();
   const c = theme.colors;
 
@@ -48,6 +49,28 @@ export default function CourseModuleView({ course, kidId }: CourseModuleViewProp
   const [viewMode, setViewMode] = useState<'week' | 'all'>('week');
   const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
   const [showMoreAssignments, setShowMoreAssignments] = useState(false);
+
+  const getCurrentWeekIndex = (weekModulesList: any[], date: Date) => {
+    const targetDate = formatDateLocal(date);
+    let selectedIndex = -1;
+
+    weekModulesList.forEach((module: any, index: number) => {
+      if (module.activity_type !== 'module' || !module.plan_date) return;
+      if (module.plan_date <= targetDate) {
+        selectedIndex = index;
+      }
+    });
+
+    return selectedIndex >= 0 ? selectedIndex : 0;
+  };
+
+  const selectWeekModule = (weekModulesList: any[], index: number) => {
+    const normalizedIndex = Math.min(Math.max(index, 0), Math.max(0, weekModulesList.length - 1));
+    setCurrentWeekIndex(normalizedIndex);
+    if (weekModulesList[normalizedIndex]?.id) {
+      setExpandedModules(new Set([weekModulesList[normalizedIndex].id]));
+    }
+  };
 
   const loadModules = async () => {
     setLoading(true);
@@ -73,25 +96,9 @@ export default function CourseModuleView({ course, kidId }: CourseModuleViewProp
       const weekModulesList = modulesList.filter((m: any) => m.position > 0);
       setWeekModules(weekModulesList);
 
-      // Find current week based on today's date
-      const today = formatDateLocal(new Date());
-      const currentIndex = weekModulesList.findIndex((m: any) =>
-        m.activity_type === 'module' && m.plan_date && m.plan_date >= today
-      );
-
-      if (currentIndex >= 0) {
-        setCurrentWeekIndex(currentIndex);
-        // Auto-expand current week module
-        if (weekModulesList[currentIndex]?.id) {
-          setExpandedModules(new Set([weekModulesList[currentIndex].id]));
-        }
-      } else {
-        // If no future week, show last week
-        const lastIndex = Math.max(0, weekModulesList.length - 1);
-        setCurrentWeekIndex(lastIndex);
-        if (weekModulesList[lastIndex]?.id) {
-          setExpandedModules(new Set([weekModulesList[lastIndex].id]));
-        }
+      if (weekModulesList.length > 0) {
+        const currentIndex = getCurrentWeekIndex(weekModulesList, selectedDate);
+        selectWeekModule(weekModulesList, currentIndex);
       }
     } catch (error) {
       console.error('Error loading modules:', error);
@@ -106,6 +113,12 @@ export default function CourseModuleView({ course, kidId }: CourseModuleViewProp
     if (!course || !kidId) return;
     loadModules();
   }, [course, kidId]);
+
+  useEffect(() => {
+    if (weekModules.length === 0) return;
+    const currentIndex = getCurrentWeekIndex(weekModules, selectedDate);
+    selectWeekModule(weekModules, currentIndex);
+  }, [selectedDate, weekModules]);
 
   const toggleModule = (moduleId: number) => {
     const newExpanded = new Set(expandedModules);

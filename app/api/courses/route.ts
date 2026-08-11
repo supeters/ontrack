@@ -24,7 +24,8 @@ export async function GET(request: NextRequest) {
         teacher,
         calendar_id,
         schools:school_id (
-          name
+          name,
+          nickname
         ),
         school_calendars:calendar_id (
           school_year_name
@@ -67,6 +68,7 @@ export async function GET(request: NextRequest) {
       course_name: course.course_name,
       subject: course.subject,
       teacher: course.teacher,
+      schoolNickname: course.schools?.nickname || course.schools?.name || 'No school',
       school: course.schools?.name || 'No school',
       calendar_id: course.calendar_id,
     }));

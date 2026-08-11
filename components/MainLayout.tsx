@@ -10,11 +10,14 @@ import PlannerView from './PlannerView';
 import CalendarView from './CalendarView';
 import SettingsView from './SettingsView';
 import { themes } from '@/lib/themes';
+import { formatDateLocal } from '@/lib/datetime';
 
 interface Course {
   id: number;
   name: string;
   school: string;
+  schoolNickname?: string;
+  teacher?: string;
   calendar_id: number;
 }
 
@@ -28,6 +31,7 @@ export default function MainLayout() {
   const [showYearDropdown, setShowYearDropdown] = useState(false);
   const [showThemeDropdown, setShowThemeDropdown] = useState(false);
   const [courses, setCourses] = useState<Course[]>([]);
+  const [selectedDate, setSelectedDate] = useState(new Date());
   const [loading, setLoading] = useState(false);
   const [coursesExpanded, setCoursesExpanded] = useState(true);
   const [schoolYears, setSchoolYears] = useState<Array<{ name: string; is_current: boolean }>>([]);
@@ -100,11 +104,11 @@ export default function MainLayout() {
     <div className={`h-screen flex flex-col ${c.bg}`}>
       {/* Top Bar */}
       <div className={`${c.cardBg} border-b ${c.divider} px-6 py-3.5 flex items-center justify-between`}>
-        <div className="flex items-center gap-3">
+        <div className="flex gap-3 items-center">
           <h1 className={`text-xl font-semibold ${c.moduleText}`}>OnTrack</h1>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex gap-3 items-center">
           {/* Kid Selector */}
           {kids && kids.length > 0 && (
             <div className="relative">
@@ -247,6 +251,21 @@ export default function MainLayout() {
         {/* Left Sidebar */}
         <div className={`w-64 ${c.bg} border-r ${c.divider} overflow-y-auto`}>
           <div className="p-4 space-y-4">
+            <div className={`rounded-lg border ${c.moduleBorder} ${c.cardBg} p-4 space-y-3`}>
+              <div className={`text-sm font-semibold ${c.moduleText}`}>Selected Date</div>
+              <input
+                type="date"
+                value={formatDateLocal(selectedDate)}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    setSelectedDate(new Date(e.target.value + 'T12:00:00'));
+                  }
+                }}
+                className={`w-full px-3 py-2 border ${c.moduleBorder} rounded-lg ${c.cardBg} ${c.moduleText}`}
+              />
+              
+            </div>
+
             {/* Agenda Link - Home Page */}
             <button
               onClick={() => setSelectedView('agenda')}
@@ -256,8 +275,8 @@ export default function MainLayout() {
                   : `${c.cardBg} ${c.activityText} ${c.activityHover.replace('border-transparent', '')} border ${c.moduleBorder}`
               }`}
             >
-              <Home className="w-5 h-5" />
-              <span className="text-sm font-semibold">Today</span>
+              <Home className="h-5 w-5" />
+              <span className="font-semibold text-sm">Agenda</span>
             </button>
 
             {/* Planner Link */}
@@ -269,8 +288,8 @@ export default function MainLayout() {
                   : `${c.cardBg} ${c.activityText} ${c.activityHover.replace('border-transparent', '')} border ${c.moduleBorder}`
               }`}
             >
-              <Calendar className="w-5 h-5" />
-              <span className="text-sm font-semibold">Planner</span>
+              <Calendar className="h-5 w-5" />
+              <span className="font-semibold text-sm">Planner</span>
             </button>
 
             {/* Calendar Link */}
@@ -282,8 +301,8 @@ export default function MainLayout() {
                   : `${c.cardBg} ${c.activityText} ${c.activityHover.replace('border-transparent', '')} border ${c.moduleBorder}`
               }`}
             >
-              <Calendar className="w-5 h-5" />
-              <span className="text-sm font-semibold">Calendar</span>
+              <Calendar className="h-5 w-5" />
+              <span className="font-semibold text-sm">Calendar</span>
             </button>
 
             {/* Collapsible Courses Section */}
@@ -293,7 +312,7 @@ export default function MainLayout() {
                 onClick={() => setCoursesExpanded(!coursesExpanded)}
                 className={`w-full flex items-center justify-between px-4 py-3 ${c.activityHover.replace('border-transparent', '')} transition-colors rounded-t-lg`}
               >
-                <div className="flex items-center gap-2">
+                <div className="flex gap-2 items-center">
                   <BookOpen className={`w-4 h-4 ${c.moduleIcon}`} />
                   <h3 className={`text-sm font-semibold ${c.moduleText}`}>Courses</h3>
                   <span className={`text-xs ${c.mutedText}`}>({courses.length})</span>
@@ -329,13 +348,13 @@ export default function MainLayout() {
                           }`}
                         >
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium truncate">{course.name}</div>
+                            <div className="font-medium text-sm truncate">{course.name}</div>
                             <div className={`text-xs truncate ${
                               selectedCourse?.id === course.id && selectedView === 'courses'
                                 ? 'text-white opacity-80'
                                 : c.mutedText
                             }`}>
-                              {course.school}
+                              {course.schoolNickname || course.school}{course.teacher ? ` - ${course.teacher}` : ''}
                             </div>
                           </div>
                         </button>
@@ -349,22 +368,22 @@ export default function MainLayout() {
         </div>
 
         {/* Main Content */}
-        <div className="flex-1 overflow-y-auto bg-white">
+        <div className="bg-white flex-1 overflow-y-auto">
           {selectedView === 'agenda' && selectedKid ? (
-            <AgendaView kidId={selectedKid.id} />
+            <AgendaView kidId={selectedKid.id} selectedDate={selectedDate} />
           ) : selectedView === 'courses' && selectedCourse ? (
-            <CoursesView selectedCourse={selectedCourse} kidId={selectedKid?.id || 0} />
+            <CoursesView selectedCourse={selectedCourse} kidId={selectedKid?.id || 0} selectedDate={selectedDate} />
           ) : selectedView === 'planner' && selectedKid ? (
-            <PlannerView kidId={selectedKid.id} />
+            <PlannerView kidId={selectedKid.id} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />
           ) : selectedView === 'calendar' && selectedKid ? (
-            <CalendarView kidId={selectedKid.id} />
+            <CalendarView kidId={selectedKid.id} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />
           ) : selectedView === 'settings' ? (
             <SettingsView />
           ) : (
-            <div className="flex items-center justify-center h-full">
+            <div className="flex h-full items-center justify-center">
               <div className="text-center text-stone-400">
-                <BookOpen className="w-16 h-16 mx-auto mb-4" />
-                <p className="text-lg font-medium text-stone-600">Select a view to get started</p>
+                <BookOpen className="h-16 mb-4 mx-auto w-16" />
+                <p className="font-medium text-lg text-stone-600">Select a view to get started</p>
                 <p className="text-sm text-stone-500">Choose from the sidebar</p>
               </div>
             </div>

@@ -8,15 +8,16 @@ import { formatDateLocal } from '@/lib/datetime';
 
 interface CalendarViewProps {
   kidId: number;
+  selectedDate: Date;
+  setSelectedDate: (date: Date) => void;
 }
 
-export default function CalendarView({ kidId }: CalendarViewProps) {
+export default function CalendarView({ kidId, selectedDate, setSelectedDate }: CalendarViewProps) {
   const { theme } = useTheme();
   const c = theme.colors;
 
   const [activities, setActivities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentWeekStart, setCurrentWeekStart] = useState(getStartOfWeek(new Date()));
   const [hideWeekends, setHideWeekends] = useState(true);
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -30,6 +31,8 @@ export default function CalendarView({ kidId }: CalendarViewProps) {
   }
 
   // Get week dates
+  const currentWeekStart = useMemo(() => getStartOfWeek(selectedDate), [selectedDate]);
+
   const weekDates = useMemo(() => {
     const dates = [];
     for (let i = 0; i < 7; i++) {
@@ -83,19 +86,19 @@ export default function CalendarView({ kidId }: CalendarViewProps) {
   }, [kidId, currentWeekStart]);
 
   const goToPrevWeek = () => {
-    const newStart = new Date(currentWeekStart);
-    newStart.setDate(newStart.getDate() - 7);
-    setCurrentWeekStart(newStart);
+    const newDate = new Date(selectedDate);
+    newDate.setDate(newDate.getDate() - 7);
+    setSelectedDate(newDate);
   };
 
   const goToNextWeek = () => {
-    const newStart = new Date(currentWeekStart);
-    newStart.setDate(newStart.getDate() + 7);
-    setCurrentWeekStart(newStart);
+    const newDate = new Date(selectedDate);
+    newDate.setDate(newDate.getDate() + 7);
+    setSelectedDate(newDate);
   };
 
   const goToToday = () => {
-    setCurrentWeekStart(getStartOfWeek(new Date()));
+    setSelectedDate(new Date());
   };
 
   const isToday = (date: Date) => {
@@ -142,7 +145,7 @@ export default function CalendarView({ kidId }: CalendarViewProps) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex h-full items-center justify-center">
         <div className="text-center">
           <div className={`animate-spin rounded-full h-12 w-12 border-b-2 ${c.checkboxChecked.split(' ')[0].replace('bg-', 'border-')} mx-auto mb-4`}></div>
           <p className={c.mutedText}>Loading calendar...</p>
@@ -156,12 +159,12 @@ export default function CalendarView({ kidId }: CalendarViewProps) {
       {/* Header */}
       <div className={`${c.cardBg} border-b ${c.divider} p-3`}>
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex gap-2 items-center">
             <CalendarIcon className={`w-5 h-5 ${c.moduleIcon}`} />
             <h2 className={`text-lg font-semibold ${c.moduleText}`}>Weekly Calendar</h2>
           </div>
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-1.5 text-xs">
+          <div className="flex gap-2 items-center">
+            <label className="flex gap-1.5 items-center text-xs">
               <input
                 type="checkbox"
                 checked={hideWeekends}
@@ -177,7 +180,7 @@ export default function CalendarView({ kidId }: CalendarViewProps) {
                 className={`p-1.5 hover:bg-opacity-10 transition-colors ${c.activityText}`}
                 title="Previous week"
               >
-                <ChevronLeft className="w-4 h-4" />
+                <ChevronLeft className="h-4 w-4" />
               </button>
               <button
                 onClick={goToToday}
@@ -190,12 +193,12 @@ export default function CalendarView({ kidId }: CalendarViewProps) {
                 className={`p-1.5 hover:bg-opacity-10 transition-colors ${c.activityText}`}
                 title="Next week"
               >
-                <ChevronRight className="w-4 h-4" />
+                <ChevronRight className="h-4 w-4" />
               </button>
             </div>
 
             <div className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium ${c.activityText} border ${c.moduleBorder} rounded-lg`}>
-              <CalendarIcon className="w-4 h-4" />
+              <CalendarIcon className="h-4 w-4" />
               Week of {currentWeekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
             </div>
           </div>
@@ -312,7 +315,7 @@ export default function CalendarView({ kidId }: CalendarViewProps) {
                               {startTime}{endTime && ` - ${endTime}`}
                             </span>
                             {activity.is_completed && (
-                              <CheckCircle2 className="w-3 h-3 text-green-500" />
+                              <CheckCircle2 className="h-3 text-green-500 w-3" />
                             )}
                           </div>
                         </div>

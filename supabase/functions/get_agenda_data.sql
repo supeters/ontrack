@@ -7,10 +7,12 @@ CREATE OR REPLACE FUNCTION public.get_agenda_data(
   p_date TEXT  -- Format: 'YYYY-MM-DD'
 )
 RETURNS TABLE (
-  courses JSONB,           -- All courses with scheduled_today flag
-  today_activities JSONB,  -- Actionable activities planned for p_date
-  overdue_activities JSONB,-- Actionable activities before p_date, not completed
-  scheduled_classes JSONB  -- Events/classes with start_time for p_date
+  courses JSONB,              -- All courses with scheduled_today flag
+  today_activities JSONB,     -- Actionable activities planned for p_date
+  overdue_activities JSONB,   -- Actionable activities before today, not completed
+  scheduled_classes JSONB,    -- Events/classes with start_time for p_date
+  current_module_activities JSONB, -- Actionable tasks in the latest module before today
+  next_module_activities JSONB     -- Actionable tasks in the next module after today
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -21,6 +23,8 @@ DECLARE
   v_today_activities JSONB;
   v_overdue_activities JSONB;
   v_scheduled_classes JSONB;
+  v_current_module_activities JSONB;
+  v_next_module_activities JSONB;
 BEGIN
   -- Get day of week (0=Sunday, 1=Monday, etc.)
   v_day_of_week := EXTRACT(DOW FROM p_date::DATE);
@@ -50,9 +54,16 @@ BEGIN
     AND c.is_active = true;
 
   -- 2. Get actionable activities for selected date
-  SELECT jsonb_agg(to_jsonb(a.*))
+  SELECT jsonb_agg(
+    to_jsonb(a.*) || jsonb_build_object(
+      'course_name', c.course_name,
+      'module_title', m.title
+    ) ORDER BY c.course_name, coalesce(m.title, ''), a.plan_date, a.title
+  )
   INTO v_today_activities
   FROM public.activities a
+  LEFT JOIN public.courses c ON a.course_id = c.id
+  LEFT JOIN public.activities m ON a.module_id = m.id
   WHERE a.kid_id = p_kid_id
     AND a.plan_date = p_date::DATE
     AND a.is_action = true
@@ -61,11 +72,18 @@ BEGIN
     AND a.activity_type NOT IN ('module', 'workgroup');
 
   -- 3. Get overdue actionable activities (before p_date, not completed)
-  SELECT jsonb_agg(to_jsonb(a.*))
+  SELECT jsonb_agg(
+    to_jsonb(a.*) || jsonb_build_object(
+      'course_name', c.course_name,
+      'module_title', m.title
+    ) ORDER BY c.course_name, coalesce(m.title, ''), a.plan_date, a.title
+  )
   INTO v_overdue_activities
   FROM public.activities a
+  LEFT JOIN public.courses c ON a.course_id = c.id
+  LEFT JOIN public.activities m ON a.module_id = m.id
   WHERE a.kid_id = p_kid_id
-    AND a.plan_date < p_date::DATE
+    AND a.plan_date < CURRENT_DATE
     AND a.is_completed = false
     AND a.is_action = true
     AND a.is_deleted = false
@@ -83,12 +101,66 @@ BEGIN
     AND a.is_deleted = false
     AND a.is_hidden = false;
 
+  -- Find the latest module before today
+  WITH latest_module AS (
+    SELECT id AS module_id
+    FROM public.activities
+    WHERE kid_id = p_kid_id
+      AND activity_type = 'module'
+      AND plan_date < p_date::DATE
+    ORDER BY plan_date DESC
+    LIMIT 1
+  )
+  SELECT jsonb_agg(
+    to_jsonb(a.*) || jsonb_build_object(
+      'course_name', c.course_name,
+      'module_title', m.title
+    ) ORDER BY c.course_name, coalesce(m.title, ''), a.plan_date, a.title
+  )
+  INTO v_current_module_activities
+  FROM public.activities a
+  LEFT JOIN public.courses c ON a.course_id = c.id
+  LEFT JOIN public.activities m ON a.module_id = m.id
+  WHERE a.module_id = (SELECT module_id FROM latest_module)
+    AND a.is_action = true
+    AND a.is_deleted = false
+    AND a.is_hidden = false
+    AND a.activity_type NOT IN ('module', 'workgroup');
+
+  -- Find the earliest module after today
+  WITH next_module AS (
+    SELECT id AS module_id
+    FROM public.activities
+    WHERE kid_id = p_kid_id
+      AND activity_type = 'module'
+      AND plan_date > p_date::DATE
+    ORDER BY plan_date ASC
+    LIMIT 1
+  )
+  SELECT jsonb_agg(
+    to_jsonb(a.*) || jsonb_build_object(
+      'course_name', c.course_name,
+      'module_title', m.title
+    ) ORDER BY c.course_name, coalesce(m.title, ''), a.plan_date, a.title
+  )
+  INTO v_next_module_activities
+  FROM public.activities a
+  LEFT JOIN public.courses c ON a.course_id = c.id
+  LEFT JOIN public.activities m ON a.module_id = m.id
+  WHERE a.module_id = (SELECT module_id FROM next_module)
+    AND a.is_action = true
+    AND a.is_deleted = false
+    AND a.is_hidden = false
+    AND a.activity_type NOT IN ('module', 'workgroup');
+
   -- Return all data in a single row
   RETURN QUERY SELECT
     COALESCE(v_courses, '[]'::jsonb),
     COALESCE(v_today_activities, '[]'::jsonb),
     COALESCE(v_overdue_activities, '[]'::jsonb),
-    COALESCE(v_scheduled_classes, '[]'::jsonb);
+    COALESCE(v_scheduled_classes, '[]'::jsonb),
+    COALESCE(v_current_module_activities, '[]'::jsonb),
+    COALESCE(v_next_module_activities, '[]'::jsonb);
 END;
 $$;
 

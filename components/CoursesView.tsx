@@ -7,18 +7,19 @@ import CourseModuleView from './CourseModuleView';
 interface CoursesViewProps {
   kidId: number;
   selectedCourse?: any;
+  selectedDate: Date;
 }
 
-export default function CoursesView({ kidId, selectedCourse }: CoursesViewProps) {
+export default function CoursesView({ kidId, selectedCourse, selectedDate }: CoursesViewProps) {
   if (selectedCourse) {
-    return <CourseModuleView course={selectedCourse} kidId={kidId} />;
+    return <CourseModuleView course={selectedCourse} kidId={kidId} selectedDate={selectedDate} />;
   }
 
   return (
-    <div className="flex items-center justify-center h-full">
+    <div className="flex h-full items-center justify-center">
       <div className="text-center text-stone-400">
-        <Book className="w-16 h-16 mx-auto mb-4" />
-        <p className="text-lg font-medium text-stone-600">Select a course to get started</p>
+        <Book className="h-16 mb-4 mx-auto w-16" />
+        <p className="font-medium text-lg text-stone-600">Select a course to get started</p>
         <p className="text-sm text-stone-500">Choose a course from the sidebar to view your work</p>
       </div>
     </div>
