@@ -18,8 +18,7 @@ BEGIN
     FROM public.activities
     WHERE kid_id = p_kid_id
       AND course_id = p_course_id
-      AND is_deleted = false
-      AND is_hidden = false
+      
     ORDER BY position
   ),
   modules AS (

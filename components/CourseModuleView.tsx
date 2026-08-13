@@ -20,7 +20,6 @@ import {
   CalendarDays,
 } from 'lucide-react';
 import ActivityDetailModal from './ActivityDetailModal';
-import ActivityModal from './ActivityModal';
 import CourseSetupModal from './CourseSetupModal';
 import { useTheme } from '@/contexts/ThemeContext';
 import { formatDateLocal } from '@/lib/datetime';
@@ -42,7 +41,6 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
   const [expandedWorkgroups, setExpandedWorkgroups] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
-  const [completionActivity, setCompletionActivity] = useState<any>(null);
   const [isCourseEditModalOpen, setIsCourseEditModalOpen] = useState(false);
 
   // Week navigation
@@ -164,49 +162,29 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
     return `${hours}h ${mins}m`;
   };
 
-  const handleActivityClick = (activity: any) => {
-    // Open ActivityModal for completion tracking
-    setCompletionActivity(activity);
-  };
-
-  const toggleActionable = async (activity: any, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const toggleCompletion = async (activity: any) => {
     try {
+      const nextCompleted = !activity.is_completed;
+      const nextCompletedAt = nextCompleted
+        ? activity.completed_at?.split('T')[0]?.split(' ')[0] || activity.plan_date || formatDateLocal(new Date())
+        : null;
+
       const response = await fetch(`/api/activities`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           activityId: activity.id,
-          updates: { is_action: !activity.is_action },
+          updates: {
+            is_completed: nextCompleted,
+            completed_at: nextCompletedAt,
+          },
         }),
       });
 
       if (!response.ok) throw new Error('Failed to update activity');
       await loadModules();
     } catch (error) {
-      console.error('Error toggling actionable:', error);
-    }
-  };
-
-  const updatePlanDate = async (activity: any, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const newDate = prompt('Enter plan date (YYYY-MM-DD):', activity.plan_date || '');
-    if (!newDate) return;
-
-    try {
-      const response = await fetch(`/api/activities`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          activityId: activity.id,
-          updates: { plan_date: newDate },
-        }),
-      });
-
-      if (!response.ok) throw new Error('Failed to update activity');
-      await loadModules();
-    } catch (error) {
-      console.error('Error updating plan date:', error);
+      console.error('Error toggling completion:', error);
     }
   };
 
@@ -220,7 +198,7 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
             {/* Checkbox - Only for actionable items */}
             {isActionable ? (
               <button
-                onClick={() => handleActivityClick(activity)}
+                onClick={() => toggleCompletion(activity)}
                 className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all flex-shrink-0 ${
                   activity.is_completed
                     ? c.checkboxChecked
@@ -571,7 +549,7 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleActivityClick(activity);
+                      toggleCompletion(activity);
                     }}
                     className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${
                       activity.is_completed
@@ -627,23 +605,6 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
           }}
         />
       )}
-
-      {/* Activity Completion Modal */}
-      <ActivityModal
-        isOpen={!!completionActivity}
-        onClose={() => setCompletionActivity(null)}
-        activity={completionActivity}
-        onSave={async (updates: any) => {
-          await fetch('/api/activities', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updates),
-          });
-          setCompletionActivity(null);
-          loadModules();
-        }}
-        courses={[]}
-      />
 
       {/* Course Edit Modal */}
       <CourseSetupModal

@@ -3,7 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { BookOpen, Calendar, Settings, LogOut, Palette, ChevronDown, ChevronUp, Home } from 'lucide-react';
+import { 
+  BookOpen, Calendar, Settings, LogOut, Palette, ChevronDown, ChevronUp, Home, 
+  PanelLeftClose, PanelLeft, ChevronRight 
+} from 'lucide-react';
 import CoursesView from './CoursesView';
 import AgendaView from './AgendaView';
 import PlannerView from './PlannerView';
@@ -34,6 +37,7 @@ export default function MainLayout() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [loading, setLoading] = useState(false);
   const [coursesExpanded, setCoursesExpanded] = useState(true);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [schoolYears, setSchoolYears] = useState<Array<{ name: string; is_current: boolean }>>([]);
 
   const loadSchoolYears = async () => {
@@ -42,12 +46,10 @@ export default function MainLayout() {
       const data: Array<{ name: string; is_current: boolean }> = await response.json();
       setSchoolYears(data || []);
 
-      // Find and set the current school year
       const currentYear = data?.find((y) => y.is_current);
       if (currentYear) {
         setSelectedSchoolYear(currentYear.name);
       } else if (data && data.length > 0) {
-        // Fallback to first year if no current year set
         setSelectedSchoolYear(data[0].name);
       }
     } catch (error) {
@@ -60,10 +62,8 @@ export default function MainLayout() {
 
     try {
       setLoading(true);
-      console.log('Loading courses for kid:', selectedKid.name, 'school year:', selectedSchoolYear);
       const response = await fetch(`/api/courses?kidId=${selectedKid.id}&schoolYear=${selectedSchoolYear}`);
       const data = await response.json();
-      console.log('Courses loaded:', data);
       setCourses(data || []);
       setLoading(false);
     } catch (error) {
@@ -72,23 +72,19 @@ export default function MainLayout() {
     }
   };
 
-  // Load school years on mount
   useEffect(() => {
     loadSchoolYears();
   }, []);
 
-  // Load courses when selectedKid or selectedSchoolYear changes
   useEffect(() => {
     if (!selectedKid) {
       setCourses([]);
       setSelectedCourse(null);
       return;
     }
-
     loadCourses();
   }, [selectedKid, selectedSchoolYear]);
 
-  // Listen for course created events
   useEffect(() => {
     const handleCourseCreated = () => {
       loadCourses();
@@ -103,8 +99,19 @@ export default function MainLayout() {
   return (
     <div className={`h-screen flex flex-col ${c.bg}`}>
       {/* Top Bar */}
-      <div className={`${c.cardBg} border-b ${c.divider} px-6 py-3.5 flex items-center justify-between`}>
+      <div className={`${c.sidebarBg} border-b ${c.divider} px-6 py-3.5 flex items-center justify-between`}>
         <div className="flex gap-3 items-center">
+          <button
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            className={`p-1.5 rounded-lg ${c.activityHover.replace('border-transparent', '')} transition-colors`}
+            title={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {isSidebarCollapsed ? (
+              <PanelLeft className={`w-5 h-5 ${c.mutedText}`} />
+            ) : (
+              <PanelLeftClose className={`w-5 h-5 ${c.mutedText}`} />
+            )}
+          </button>
           <h1 className={`text-xl font-semibold ${c.moduleText}`}>OnTrack</h1>
         </div>
 
@@ -119,9 +126,7 @@ export default function MainLayout() {
                 <span className={`font-medium ${c.moduleText}`}>
                   {selectedKid?.name || 'Select Student'}
                 </span>
-                <svg className={`w-4 h-4 ${c.mutedText}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+                <ChevronDown className={`w-4 h-4 ${c.mutedText}`} />
               </button>
 
               {showKidDropdown && (
@@ -156,9 +161,7 @@ export default function MainLayout() {
             >
               <Calendar className={`w-4 h-4 ${c.mutedText}`} />
               <span className={`font-medium ${c.moduleText}`}>{selectedSchoolYear}</span>
-              <svg className={`w-4 h-4 ${c.mutedText}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
+              <ChevronDown className={`w-4 h-4 ${c.mutedText}`} />
             </button>
 
             {showYearDropdown && (
@@ -249,10 +252,15 @@ export default function MainLayout() {
       {/* Main Content Area */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar */}
-        <div className={`w-64 ${c.bg} border-r ${c.divider} overflow-y-auto`}>
-          <div className="p-4 space-y-4">
-            <div className={`rounded-lg border ${c.moduleBorder} ${c.cardBg} p-4 space-y-3`}>
-              <div className={`text-sm font-semibold ${c.moduleText}`}>Selected Date</div>
+        <div 
+          className={`${
+            isSidebarCollapsed ? 'w-16' : 'w-64'
+          } ${c.sidebarBg} border-r ${c.sidebarBorder} overflow-y-auto transition-all duration-200 flex flex-col`}
+        >
+          <div className="flex-1 p-3 space-y-3">
+            {/* Date Selector */}
+            <div className={`rounded-lg border ${c.sidebarBorder} ${c.sidebarBg} p-3 space-y-2`}>
+              {!isSidebarCollapsed && <div className={`text-xs font-semibold ${c.moduleText}`}>Selected Date</div>}
               <input
                 type="date"
                 value={formatDateLocal(selectedDate)}
@@ -261,79 +269,86 @@ export default function MainLayout() {
                     setSelectedDate(new Date(e.target.value + 'T12:00:00'));
                   }
                 }}
-                className={`w-full px-3 py-2 border ${c.moduleBorder} rounded-lg ${c.cardBg} ${c.moduleText}`}
+                className={`w-full px-2 py-1.5 text-xs border ${c.sidebarBorder} rounded-lg ${c.sidebarItemBg} ${c.moduleText}`}
               />
-              
             </div>
 
-            {/* Agenda Link - Home Page */}
+            {/* Agenda Link */}
             <button
               onClick={() => setSelectedView('agenda')}
-              className={`w-full text-left px-4 py-3 rounded-lg transition-colors flex items-center gap-2 ${
+              title={isSidebarCollapsed ? "Agenda" : undefined}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-center gap-2.5 ${
                 selectedView === 'agenda'
-                  ? `${c.checkboxChecked} text-white shadow-sm`
-                  : `${c.cardBg} ${c.activityText} ${c.activityHover.replace('border-transparent', '')} border ${c.moduleBorder}`
+                  ? `${c.sidebarSelectedBg} ${c.sidebarSelectedText} border ${c.sidebarSelectedBorder} shadow-sm`
+                  : `${c.sidebarItemBg} ${c.sidebarItemText} ${c.sidebarItemHover.replace('border-transparent', '')} border ${c.sidebarItemBorder}`
               }`}
             >
-              <Home className="h-5 w-5" />
-              <span className="font-semibold text-sm">Agenda</span>
+              <Home className="h-4 shrink-0 w-4" />
+              {!isSidebarCollapsed && <span className="font-semibold text-xs truncate">Agenda</span>}
             </button>
 
             {/* Planner Link */}
             <button
               onClick={() => setSelectedView('planner')}
-              className={`w-full text-left px-4 py-3 rounded-lg transition-colors flex items-center gap-2 ${
+              title={isSidebarCollapsed ? "Planner" : undefined}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-center gap-2.5 ${
                 selectedView === 'planner'
-                  ? `${c.checkboxChecked} text-white shadow-sm`
-                  : `${c.cardBg} ${c.activityText} ${c.activityHover.replace('border-transparent', '')} border ${c.moduleBorder}`
+                  ? `${c.sidebarSelectedBg} ${c.sidebarSelectedText} border ${c.sidebarSelectedBorder} shadow-sm`
+                  : `${c.sidebarItemBg} ${c.sidebarItemText} ${c.sidebarItemHover.replace('border-transparent', '')} border ${c.sidebarItemBorder}`
               }`}
             >
-              <Calendar className="h-5 w-5" />
-              <span className="font-semibold text-sm">Planner</span>
+              <Calendar className="h-4 shrink-0 w-4" />
+              {!isSidebarCollapsed && <span className="font-semibold text-xs truncate">Planner</span>}
             </button>
 
             {/* Calendar Link */}
             <button
               onClick={() => setSelectedView('calendar')}
-              className={`w-full text-left px-4 py-3 rounded-lg transition-colors flex items-center gap-2 ${
+              title={isSidebarCollapsed ? "Calendar" : undefined}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-center gap-2.5 ${
                 selectedView === 'calendar'
-                  ? `${c.checkboxChecked} text-white shadow-sm`
-                  : `${c.cardBg} ${c.activityText} ${c.activityHover.replace('border-transparent', '')} border ${c.moduleBorder}`
+                  ? `${c.sidebarSelectedBg} ${c.sidebarSelectedText} border ${c.sidebarSelectedBorder} shadow-sm`
+                  : `${c.sidebarItemBg} ${c.sidebarItemText} ${c.sidebarItemHover.replace('border-transparent', '')} border ${c.sidebarItemBorder}`
               }`}
             >
-              <Calendar className="h-5 w-5" />
-              <span className="font-semibold text-sm">Calendar</span>
+              <Calendar className="h-4 shrink-0 w-4" />
+              {!isSidebarCollapsed && <span className="font-semibold text-xs truncate">Calendar</span>}
             </button>
 
             {/* Collapsible Courses Section */}
-            <div className={`${c.cardBg} rounded-lg border ${c.moduleBorder} shadow-sm`}>
-              {/* Courses Header - Collapsible */}
+            <div className={`${c.sidebarBg} rounded-lg border ${c.sidebarBorder} shadow-xs`}>
               <button
                 onClick={() => setCoursesExpanded(!coursesExpanded)}
-                className={`w-full flex items-center justify-between px-4 py-3 ${c.activityHover.replace('border-transparent', '')} transition-colors rounded-t-lg`}
+                title={isSidebarCollapsed ? "Courses" : undefined}
+                className={`w-full flex items-center justify-between px-3 py-2.5 ${c.sidebarItemHover.replace('border-transparent', '')} transition-colors rounded-t-lg`}
               >
-                <div className="flex gap-2 items-center">
-                  <BookOpen className={`w-4 h-4 ${c.moduleIcon}`} />
-                  <h3 className={`text-sm font-semibold ${c.moduleText}`}>Courses</h3>
-                  <span className={`text-xs ${c.mutedText}`}>({courses.length})</span>
+                <div className="flex gap-2 items-center min-w-0">
+                  <BookOpen className={`w-4 h-4 shrink-0 ${c.moduleIcon}`} />
+                  {!isSidebarCollapsed && (
+                    <>
+                      <h3 className={`text-xs font-semibold ${c.moduleText} truncate`}>Courses</h3>
+                      <span className={`text-[10px] ${c.mutedText}`}>({courses.length})</span>
+                    </>
+                  )}
                 </div>
-                {coursesExpanded ? (
-                  <ChevronUp className={`w-4 h-4 ${c.mutedText}`} />
-                ) : (
-                  <ChevronDown className={`w-4 h-4 ${c.mutedText}`} />
+                {!isSidebarCollapsed && (
+                  coursesExpanded ? (
+                    <ChevronUp className={`w-3.5 h-3.5 ${c.mutedText}`} />
+                  ) : (
+                    <ChevronDown className={`w-3.5 h-3.5 ${c.mutedText}`} />
+                  )
                 )}
               </button>
 
               {/* Course List */}
-              {coursesExpanded && (
+              {coursesExpanded && !isSidebarCollapsed && (
                 <div className={`border-t ${c.divider}`}>
                   {courses.length === 0 ? (
-                    <div className="px-4 py-6 text-center">
-                      <p className={`text-sm ${c.mutedText}`}>No courses found</p>
-                      <p className={`text-xs ${c.mutedText} mt-1`}>for {selectedSchoolYear}</p>
+                    <div className="px-3 py-4 text-center">
+                      <p className={`text-xs ${c.mutedText}`}>No courses found</p>
                     </div>
                   ) : (
-                    <div className="p-2 space-y-1">
+                    <div className="p-1.5 space-y-1">
                       {courses.map((course) => (
                         <button
                           key={course.id}
@@ -341,20 +356,20 @@ export default function MainLayout() {
                             setSelectedCourse(course);
                             setSelectedView('courses');
                           }}
-                          className={`w-full text-left px-3 py-2.5 rounded-md transition-colors ${
+                          className={`w-full text-left px-2.5 py-2 rounded-md transition-colors ${
                             selectedCourse?.id === course.id && selectedView === 'courses'
-                              ? `${c.checkboxChecked} text-white shadow-sm`
-                              : `${c.activityText} ${c.activityHover.replace('border-transparent', '')}`
+                              ? `${c.sidebarSelectedBg} ${c.sidebarSelectedText} border ${c.sidebarSelectedBorder} shadow-xs`
+                              : `${c.sidebarItemBg} ${c.sidebarItemText} ${c.sidebarItemHover.replace('border-transparent', '')} border ${c.sidebarItemBorder}`
                           }`}
                         >
                           <div className="flex-1 min-w-0">
-                            <div className="font-medium text-sm truncate">{course.name}</div>
-                            <div className={`text-xs truncate ${
+                            <div className="font-medium text-xs truncate">{course.name}</div>
+                            <div className={`text-[10px] truncate ${
                               selectedCourse?.id === course.id && selectedView === 'courses'
                                 ? 'text-white opacity-80'
                                 : c.mutedText
                             }`}>
-                              {course.schoolNickname || course.school}{course.teacher ? ` - ${course.teacher}` : ''}
+                              {course.schoolNickname || course.school}
                             </div>
                           </div>
                         </button>
@@ -367,7 +382,7 @@ export default function MainLayout() {
           </div>
         </div>
 
-        {/* Main Content */}
+        {/* Main Content View Container */}
         <div className="bg-white flex-1 overflow-y-auto">
           {selectedView === 'agenda' && selectedKid ? (
             <AgendaView kidId={selectedKid.id} selectedDate={selectedDate} />

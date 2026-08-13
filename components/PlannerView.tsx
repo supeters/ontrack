@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Calendar, ChevronLeft, ChevronRight, Clock, CheckCircle2 } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
-import ActivityModal from './ActivityModal';
+import ActivityDetailModal from './ActivityDetailModal';
 import { formatDateLocal } from '@/lib/datetime';
 
 interface PlannerViewProps {
@@ -465,12 +465,13 @@ export default function PlannerView({ kidId, selectedDate, setSelectedDate }: Pl
         </div>
 
       {/* Activity Modal */}
-      <ActivityModal
-        isOpen={isModalOpen}
-        onClose={closeActivityModal}
-        activity={selectedActivity}
-        onSave={handleActivitySave}
-      />
+      {isModalOpen && selectedActivity && (
+        <ActivityDetailModal
+          activity={selectedActivity}
+          onClose={closeActivityModal}
+          onUpdate={loadData}
+        />
+      )}
     </div>
   );
 }

@@ -11,18 +11,18 @@ interface ThemeContextType {
 }
 
 const ThemeContext = createContext<ThemeContextType>({
-  theme: getTheme('warm'),
-  currentTheme: 'warm',
+  theme: getTheme('ocean'),
+  currentTheme: 'ocean',
   changeTheme: () => {},
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [currentTheme, setCurrentTheme] = useState(() => {
-    // Get theme from localStorage or default to 'warm'
+    // Get theme from localStorage or default to 'ocean'
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('ontrack-theme') || 'warm';
+      return localStorage.getItem('ontrack-theme') || 'ocean';
     }
-    return 'warm';
+    return 'ocean';
   });
 
   const theme = getTheme(currentTheme);

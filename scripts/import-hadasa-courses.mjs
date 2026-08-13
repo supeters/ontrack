@@ -21,7 +21,7 @@ const COURSE_MAPPING = {
   5601: { db_id: 61, name: 'Informal Fallacies Spring A 2026-27' }
 };
 
-const HADASA_KID_ID = 2;
+const HADASA_KID_ID = 3;
 
 /**
  * Get Hadasa's LMS account

@@ -235,8 +235,8 @@ export default function SettingsView() {
                 : `border-transparent ${c.mutedText} hover:${c.moduleText}`
             }`}
           >
-            <div className="flex items-center gap-2">
-              <School className="w-4 h-4" />
+            <div className="flex gap-2 items-center">
+              <School className="h-4 w-4" />
               Schools
             </div>
           </button>
@@ -248,8 +248,8 @@ export default function SettingsView() {
                 : `border-transparent ${c.mutedText} hover:${c.moduleText}`
             }`}
           >
-            <div className="flex items-center gap-2">
-              <CalendarIcon className="w-4 h-4" />
+            <div className="flex gap-2 items-center">
+              <CalendarIcon className="h-4 w-4" />
               Calendars
             </div>
           </button>
@@ -261,8 +261,8 @@ export default function SettingsView() {
                 : `border-transparent ${c.mutedText} hover:${c.moduleText}`
             }`}
           >
-            <div className="flex items-center gap-2">
-              <Plane className="w-4 h-4" />
+            <div className="flex gap-2 items-center">
+              <Plane className="h-4 w-4" />
               Holidays
             </div>
           </button>
@@ -274,8 +274,8 @@ export default function SettingsView() {
                 : `border-transparent ${c.mutedText} hover:${c.moduleText}`
             }`}
           >
-            <div className="flex items-center gap-2">
-              <Download className="w-4 h-4" />
+            <div className="flex gap-2 items-center">
+              <Download className="h-4 w-4" />
               Export
             </div>
           </button>
@@ -286,13 +286,13 @@ export default function SettingsView() {
       <div className="flex-1 overflow-y-auto p-6">
         {activeTab === 'schools' && (
           <div>
-            <div className="flex justify-between items-center mb-4">
+            <div className="flex items-center justify-between mb-4">
               <h2 className={`text-lg font-semibold ${c.moduleText}`}>Schools</h2>
               <button
                 onClick={() => setShowSchoolForm(!showSchoolForm)}
                 className={`flex items-center gap-2 px-4 py-2 ${c.checkboxChecked} text-white rounded-lg`}
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="h-4 w-4" />
                 Add School
               </button>
             </div>
@@ -346,7 +346,7 @@ export default function SettingsView() {
                     onClick={() => deleteSchool(school.id)}
                     className={`p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors`}
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
               ))}
@@ -356,13 +356,13 @@ export default function SettingsView() {
 
         {activeTab === 'calendars' && (
           <div>
-            <div className="flex justify-between items-center mb-4">
+            <div className="flex items-center justify-between mb-4">
               <h2 className={`text-lg font-semibold ${c.moduleText}`}>Calendars</h2>
               <button
                 onClick={() => setShowCalendarForm(!showCalendarForm)}
                 className={`flex items-center gap-2 px-4 py-2 ${c.checkboxChecked} text-white rounded-lg`}
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="h-4 w-4" />
                 Add Calendar
               </button>
             </div>
@@ -411,7 +411,7 @@ export default function SettingsView() {
                       className={`w-full px-3 py-2 border ${c.moduleBorder} rounded-lg ${c.moduleText}`}
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="gap-3 grid grid-cols-2">
                     <div>
                       <label className={`block text-sm font-medium ${c.moduleText} mb-1`}>Start Date *</label>
                       <input
@@ -472,13 +472,13 @@ export default function SettingsView() {
                       }}
                       className={`p-2 ${c.moduleText} hover:bg-gray-100 rounded-lg transition-colors`}
                     >
-                      <Edit2 className="w-4 h-4" />
+                      <Edit2 className="h-4 w-4" />
                     </button>
                     <button
                       onClick={() => deleteCalendar(calendar.id)}
                       className={`p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors`}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
@@ -489,13 +489,13 @@ export default function SettingsView() {
 
         {activeTab === 'holidays' && (
           <div>
-            <div className="flex justify-between items-center mb-4">
+            <div className="flex items-center justify-between mb-4">
               <h2 className={`text-lg font-semibold ${c.moduleText}`}>Holidays</h2>
               <button
                 onClick={() => setShowHolidayForm(!showHolidayForm)}
                 className={`flex items-center gap-2 px-4 py-2 ${c.checkboxChecked} text-white rounded-lg`}
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="h-4 w-4" />
                 Add Holiday
               </button>
             </div>
@@ -532,7 +532,7 @@ export default function SettingsView() {
                       className={`w-full px-3 py-2 border ${c.moduleBorder} rounded-lg ${c.moduleText}`}
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="gap-3 grid grid-cols-2">
                     <div>
                       <label className={`block text-sm font-medium ${c.moduleText} mb-1`}>Start Date *</label>
                       <input
@@ -603,13 +603,13 @@ export default function SettingsView() {
                         }}
                         className={`p-2 ${c.mutedText} hover:${c.checkboxChecked} rounded-lg transition-colors`}
                       >
-                        <Edit2 className="w-4 h-4" />
+                        <Edit2 className="h-4 w-4" />
                       </button>
                       <button
                         onClick={() => deleteHoliday(holiday.id)}
                         className={`p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors`}
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
                   </div>

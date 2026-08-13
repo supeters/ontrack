@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
 /**
- * Sync Moodle Course Modules and Assignments (Incremental)
+ * Sync Moodle Course Modules and Assignments
  *
  * Usage:
- *   node scripts/sync-course-modules.mjs --course 59
+ *   node scripts/sync-course-modules.mjs --course 58 --mode incremental
+ *   node scripts/sync-course-modules.mjs --course 58 --mode all
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -16,7 +17,10 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 // Parse command line arguments
 const courseIdArg = process.argv.find((arg, i) => process.argv[i - 1] === '--course');
-const COURSE_ID = courseIdArg ? parseInt(courseIdArg) : 59; // Default to High School Comp 3
+const modeArg = process.argv.find((arg, i) => process.argv[i - 1] === '--mode');
+
+const COURSE_ID = courseIdArg ? parseInt(courseIdArg, 10) : 58;
+const SYNC_MODE = modeArg && ['all', 'incremental'].includes(modeArg.toLowerCase()) ? modeArg.toLowerCase() : 'incremental';
 
 /**
  * Get course from database
@@ -51,161 +55,31 @@ async function getLmsAccount(accountId) {
 }
 
 /**
- * Fetch course contents from Moodle
+ * Call Moodle Web Service helper
  */
-async function fetchMoodleContents(lmsAccount, moodleCourseId) {
-  console.log('📥 Fetching course contents from Moodle...');
+async function callMoodleApi(lmsAccount, wsFunction, params = {}) {
+  const body = new URLSearchParams();
+  body.append('wstoken', lmsAccount.api_token);
+  body.append('wsfunction', wsFunction);
+  body.append('moodlewsrestformat', 'json');
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      body.append(key, String(value));
+    }
+  });
 
   const response = await fetch(`${lmsAccount.lms_url}/webservice/rest/server.php`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      wstoken: lmsAccount.api_token,
-      wsfunction: 'core_course_get_contents',
-      moodlewsrestformat: 'json',
-      courseid: moodleCourseId
-    })
+    body
   });
 
   const result = await response.json();
-
-  if (!Array.isArray(result)) {
-    console.error('❌ Moodle API error:', result);
-    throw new Error('Failed to fetch course contents');
+  if (result.exception || (result.warnings && result.warnings.length > 0 && !Array.isArray(result))) {
+    console.error(`❌ Moodle API Error (${wsFunction}):`, JSON.stringify(result, null, 2));
   }
-
-  console.log(`✅ Found ${result.length} sections`);
   return result;
-}
-
-/**
- * Sync a section (module) to activities table
- */
-async function syncSection(section, course, lastSync) {
-  const sectionId = section.id.toString();
-
-  // Check if already exists
-  const { data: existing } = await supabase
-    .from('activities')
-    .select('id, lms_synced_at')
-    .eq('lms_id', sectionId)
-    .eq('course_id', course.id)
-    .single();
-
-  // Section has no timemodified, so we always update if it exists
-  const sectionData = {
-    title: section.name || `Section ${section.section}`,
-    description: section.summary || null,
-    activity_type: 'module',
-    course_id: course.id,
-    kid_id: course.kid_id,
-    lms_id: sectionId,
-    lms_type: 'section',
-    lms_source: 'moodle',
-    position: section.section || 0,
-    is_hidden: section.visible === 0,
-    lms_synced_at: new Date().toISOString()
-  };
-
-  let activityId;
-
-  if (existing) {
-    // Update existing
-    const { error } = await supabase
-      .from('activities')
-      .update(sectionData)
-      .eq('id', existing.id);
-
-    if (error) throw error;
-    activityId = existing.id;
-    console.log(`   ✏️  Updated section: ${sectionData.title}`);
-  } else {
-    // Insert new
-    const { data: newActivity, error } = await supabase
-      .from('activities')
-      .insert(sectionData)
-      .select('id')
-      .single();
-
-    if (error) throw error;
-    activityId = newActivity.id;
-    console.log(`   ➕ Created section: ${sectionData.title}`);
-  }
-
-  return activityId;
-}
-
-/**
- * Sync a module (assignment/resource) to activities table
- */
-async function syncModule(module, course, parentActivityId, lastSync) {
-  const moduleId = module.id.toString();
-
-  // Check if already exists
-  const { data: existing } = await supabase
-    .from('activities')
-    .select('id, lms_synced_at')
-    .eq('lms_id', moduleId)
-    .eq('course_id', course.id)
-    .single();
-
-  // Check if module was modified since last sync
-  const moduleModified = module.timemodified || 0;
-  const lastSyncTime = lastSync ? new Date(lastSync).getTime() / 1000 : 0;
-
-  if (existing && moduleModified > 0 && moduleModified <= lastSyncTime) {
-    // Skip - not modified since last sync
-    return { id: existing.id, skipped: true };
-  }
-
-  const activityType = getActivityType(module.modname);
-
-  // Construct Moodle URL if module.url is empty
-  const resourceUrl = module.url || `${lmsAccount.lms_url}/mod/${module.modname}/view.php?id=${module.id}`;
-
-  const moduleData = {
-    title: module.name || 'Unnamed',
-    description: module.description || null,
-    activity_type: activityType,
-    course_id: course.id,
-    kid_id: course.kid_id,
-    parent_activity_id: parentActivityId,
-    lms_id: moduleId,
-    lms_type: module.modname,
-    lms_source: 'moodle',
-    resource_url: resourceUrl,
-    position: module.indent || 0,
-    is_hidden: module.visible === 0,
-    is_action_sync: activityType === 'assignment', // Assignments are actionable, resources are not
-    lms_synced_at: new Date().toISOString()
-  };
-
-  let activityId;
-
-  if (existing) {
-    // Update existing
-    const { error } = await supabase
-      .from('activities')
-      .update(moduleData)
-      .eq('id', existing.id);
-
-    if (error) throw error;
-    activityId = existing.id;
-    console.log(`      ✏️  Updated ${activityType}: ${moduleData.title}`);
-  } else {
-    // Insert new
-    const { data: newActivity, error } = await supabase
-      .from('activities')
-      .insert(moduleData)
-      .select('id')
-      .single();
-
-    if (error) throw error;
-    activityId = newActivity.id;
-    console.log(`      ➕ Created ${activityType}: ${moduleData.title}`);
-  }
-
-  return { id: activityId, skipped: false };
 }
 
 /**
@@ -223,23 +97,122 @@ function getActivityType(modname) {
     'forum': 'assignment',
     'label': 'resource'
   };
-
   return typeMap[modname] || 'resource';
 }
 
 /**
- * Display sync summary
+ * SYNC COURSE CONTENTS (Supports Incremental & Full Modes)
  */
-function displaySummary(stats, course) {
-  console.log('\n' + '═'.repeat(80));
-  console.log('📊 SYNC SUMMARY');
-  console.log('═'.repeat(80));
-  console.log(`Course: ${course.course_name}`);
-  console.log(`Moodle Course ID: ${course.lms_course_id}`);
-  console.log(`\nSections: ${stats.sections.created} created, ${stats.sections.updated} updated`);
-  console.log(`Modules: ${stats.modules.created} created, ${stats.modules.updated} updated, ${stats.modules.skipped} skipped (unchanged)`);
-  console.log(`\nTotal activities synced: ${stats.sections.created + stats.sections.updated + stats.modules.created + stats.modules.updated}`);
-  console.log('═'.repeat(80));
+async function syncCourseContents(lmsAccount, course, isIncremental = false) {
+  const lastSyncTime = (isIncremental && course.activities_last_sync)
+    ? Math.floor(new Date(course.activities_last_sync).getTime() / 1000)
+    : 0;
+
+  if (isIncremental) {
+    console.log(`⚡ Running Incremental Sync (checking items modified since timestamp: ${lastSyncTime})...`);
+  } else {
+    console.log('📥 Running Full Sync (fetching complete course tree)...');
+  }
+
+  const sections = await callMoodleApi(lmsAccount, 'core_course_get_contents', {
+    courseid: course.lms_course_id
+  });
+
+  if (!Array.isArray(sections) || sections.exception) {
+    throw new Error(`Failed to fetch course contents from Moodle: ${sections.message || 'Unknown error'}`);
+  }
+
+  const stats = {
+    sections: { created: 0, updated: 0 },
+    modules: { created: 0, updated: 0, skipped: 0 }
+  };
+
+  for (const section of sections) {
+    const sectionId = section.id.toString();
+
+    const { data: existingSection } = await supabase
+      .from('activities')
+      .select('id')
+      .eq('lms_id', sectionId)
+      .eq('course_id', course.id)
+      .single();
+
+    const sectionData = {
+      title: section.name || `Section ${section.section}`,
+      description: section.summary || null,
+      activity_type: 'module',
+      course_id: course.id,
+      kid_id: course.kid_id,
+      lms_id: sectionId,
+      lms_type: 'section',
+      lms_source: 'moodle',
+      position: section.section || 0,
+      is_hidden: section.visible === 0,
+      lms_synced_at: new Date().toISOString()
+    };
+
+    let parentActivityId;
+    if (existingSection) {
+      await supabase.from('activities').update(sectionData).eq('id', existingSection.id);
+      parentActivityId = existingSection.id;
+      stats.sections.updated++;
+    } else {
+      const { data: newSec } = await supabase.from('activities').insert(sectionData).select('id').single();
+      parentActivityId = newSec?.id;
+      stats.sections.created++;
+    }
+
+    for (const module of section.modules || []) {
+      const moduleId = module.id.toString();
+      const moduleModified = module.timemodified || 0;
+
+      const { data: existingModule } = await supabase
+        .from('activities')
+        .select('id')
+        .eq('lms_id', moduleId)
+        .eq('course_id', course.id)
+        .single();
+
+      // Skip in incremental mode if the module hasn't been modified since last sync
+      if (isIncremental && existingModule && moduleModified > 0 && moduleModified <= lastSyncTime) {
+        stats.modules.skipped++;
+        continue;
+      }
+
+      const activityType = getActivityType(module.modname);
+      const resourceUrl = module.url || `${lmsAccount.lms_url}/mod/${module.modname}/view.php?id=${module.id}`;
+
+      const moduleData = {
+        title: module.name || 'Unnamed',
+        description: module.description || null,
+        activity_type: activityType,
+        course_id: course.id,
+        kid_id: course.kid_id,
+        parent_activity_id: parentActivityId,
+        lms_id: moduleId,
+        lms_type: module.modname,
+        lms_source: 'moodle',
+        resource_url: resourceUrl,
+        position: module.indent || 0,
+        is_hidden: module.visible === 0,
+        is_action_sync: activityType === 'assignment',
+        item_needs_processing: true,
+        lms_synced_at: new Date().toISOString()
+      };
+
+      if (existingModule) {
+        await supabase.from('activities').update(moduleData).eq('id', existingModule.id);
+        stats.modules.updated++;
+        console.log(`   ✏️  Updated activity: ${moduleData.title}`);
+      } else {
+        await supabase.from('activities').insert(moduleData);
+        stats.modules.created++;
+        console.log(`   ➕ Created activity: ${moduleData.title}`);
+      }
+    }
+  }
+
+  return stats;
 }
 
 /**
@@ -247,89 +220,26 @@ function displaySummary(stats, course) {
  */
 async function main() {
   try {
-    console.log(`🚀 Syncing Moodle Course ${COURSE_ID}\n`);
+    console.log(`🚀 Starting Moodle Sync | Course ID: ${COURSE_ID} | Mode: ${SYNC_MODE.toUpperCase()}\n`);
 
-    // Step 1: Get course from database
-    console.log('🔍 Loading course from database...');
     const course = await getCourse(COURSE_ID);
-    console.log(`✅ Course: ${course.course_name}`);
-    console.log(`   Moodle ID: ${course.lms_course_id}`);
-    console.log(`   Last sync: ${course.activities_last_sync || 'Never'}`);
-
-    // Step 2: Get LMS account
-    console.log('\n🔑 Loading LMS account...');
     const lmsAccount = await getLmsAccount(course.lms_account_id);
-    console.log(`✅ Account: ${lmsAccount.lms_user_name}`);
 
-    // Step 3: Fetch course contents from Moodle
-    const sections = await fetchMoodleContents(lmsAccount, course.lms_course_id);
+    const isIncremental = SYNC_MODE === 'incremental';
+    const stats = await syncCourseContents(lmsAccount, course, isIncremental);
 
-    // Step 4: Sync sections and modules
-    console.log('\n📝 Syncing activities...\n');
+    console.log(`\n📊 Sync Complete: ${stats.modules.created} created, ${stats.modules.updated} updated, ${stats.modules.skipped} skipped.`);
 
-    const stats = {
-      sections: { created: 0, updated: 0 },
-      modules: { created: 0, updated: 0, skipped: 0 }
-    };
-
-    for (const section of sections) {
-      // Sync section (parent module)
-      const { data: existingSection } = await supabase
-        .from('activities')
-        .select('id')
-        .eq('lms_id', section.id.toString())
-        .eq('course_id', course.id)
-        .single();
-
-      const sectionId = await syncSection(section, course, course.activities_last_sync);
-
-      if (existingSection) {
-        stats.sections.updated++;
-      } else {
-        stats.sections.created++;
-      }
-
-      // Sync modules within section
-      for (const module of section.modules || []) {
-        const { data: existingModule } = await supabase
-          .from('activities')
-          .select('id')
-          .eq('lms_id', module.id.toString())
-          .eq('course_id', course.id)
-          .single();
-
-        const result = await syncModule(module, course, sectionId, course.activities_last_sync);
-
-        if (result.skipped) {
-          stats.modules.skipped++;
-        } else if (existingModule) {
-          stats.modules.updated++;
-        } else {
-          stats.modules.created++;
-        }
-      }
-    }
-
-    // Step 5: Update last sync timestamp
-    console.log('\n⏰ Updating last sync timestamp...');
-    const { error: updateError } = await supabase
+    // Update last sync timestamp
+    await supabase
       .from('courses')
       .update({ activities_last_sync: new Date().toISOString() })
       .eq('id', course.id);
 
-    if (updateError) throw updateError;
-    console.log('✅ Timestamp updated');
-
-    // Step 6: Display summary
-    displaySummary(stats, course);
-
-    console.log('\n✅ Sync complete!\n');
+    console.log('⏰ Updated activities_last_sync timestamp.\n');
 
   } catch (error) {
     console.error('\n❌ Sync failed:', error.message);
-    if (error.stack) {
-      console.error(error.stack);
-    }
     process.exit(1);
   }
 }

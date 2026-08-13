@@ -37,6 +37,26 @@ export async function GET(request: NextRequest) {
         today_activities: [],
         overdue_activities: [],
         scheduled_classes: [],
+        
+        next_module_activities: [],
+        completed_activities: [],
+      });
+    }
+
+    // If your Postgres RPC function returns unnamed columns (e.g. col1, col2),
+    // map them explicitly here:
+    if (result.out_courses !== undefined || Array.isArray(Object.values(result))) {
+      const keys = Object.keys(result);
+      
+      // Handle Postgres named OR position-based RPC responses
+      return NextResponse.json({
+        courses: result.courses ?? result[keys[0]] ?? [],
+        today_activities: result.today_activities ?? result[keys[1]] ?? [],
+        overdue_activities: result.overdue_activities ?? result[keys[2]] ?? [],
+        scheduled_classes: result.scheduled_classes ?? result[keys[3]] ?? [],
+        
+        next_module_activities: result.next_module_activities ?? result[keys[4]] ?? [],
+        completed_activities: result.completed_activities ?? result[keys[5]] ?? [],
       });
     }
 
