@@ -801,10 +801,10 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
       {isAddActivityModalOpen && (
         <ActivityCreateModal
           kidId={kidId}
-          courses={courses}
+          selectedDate={selectedDateStr}
           isOpen={isAddActivityModalOpen}
           onClose={() => setIsAddActivityModalOpen(false)}
-          onRefresh={loadAgendaData}
+          onSave={loadAgendaData}
         />
       )}
     </div>
