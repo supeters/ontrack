@@ -3,9 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { 
-  BookOpen, Calendar, Settings, LogOut, Palette, ChevronDown, ChevronUp, Home, 
-  PanelLeftClose, PanelLeft, ChevronRight 
+import { ActiveWorkProvider, useActiveWork } from '@/contexts/ActiveWorkContext';
+import {
+  BookOpen, Calendar, Settings, LogOut, Palette, ChevronDown, ChevronUp, Home,
+  PanelLeftClose, PanelLeft, ChevronRight, Flame, Pause, CheckCircle
 } from 'lucide-react';
 import CoursesView from './CoursesView';
 import AgendaView from './AgendaView';
@@ -24,9 +25,10 @@ interface Course {
   calendar_id: number;
 }
 
-export default function MainLayout() {
+function MainLayoutContent() {
   const { signOut, user, kids, selectedKid, setSelectedKid } = useAuth();
   const { theme, currentTheme, changeTheme } = useTheme();
+  const { activeWork, pauseWork, completeWork, restoreActiveWork } = useActiveWork();
   const [selectedView, setSelectedView] = useState<'agenda' | 'planner' | 'calendar' | 'courses' | 'settings'>('agenda');
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [selectedSchoolYear, setSelectedSchoolYear] = useState<string>('');
@@ -39,6 +41,7 @@ export default function MainLayout() {
   const [coursesExpanded, setCoursesExpanded] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [schoolYears, setSchoolYears] = useState<Array<{ name: string; is_current: boolean }>>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const loadSchoolYears = async () => {
     try {
@@ -83,6 +86,7 @@ export default function MainLayout() {
       return;
     }
     loadCourses();
+    restoreActiveWork(selectedKid.id);
   }, [selectedKid, selectedSchoolYear]);
 
   useEffect(() => {
@@ -380,12 +384,59 @@ export default function MainLayout() {
               )}
             </div>
           </div>
+
+          {/* Working On Indicator */}
+          {activeWork && (
+            <div className={`border-t ${c.sidebarBorder} p-3`}>
+              {isSidebarCollapsed ? (
+                <div className="flex flex-col items-center gap-1" title={`Working on: ${activeWork.activity.title}`}>
+                  <Flame className="h-5 w-5 text-orange-500 animate-pulse" />
+                  <span className={`text-[9px] font-bold ${c.moduleText}`}>
+                    {Math.floor((new Date().getTime() - activeWork.startTime.getTime()) / 60000)}m
+                  </span>
+                </div>
+              ) : (
+                <div className={`${c.workgroupBg} rounded-lg p-3 space-y-2`}>
+                  <div className="flex items-center gap-2">
+                    <Flame className="h-4 w-4 text-orange-500 animate-pulse" />
+                    <span className={`text-xs font-bold uppercase ${c.moduleText}`}>Working On</span>
+                  </div>
+                  <div className={`text-xs font-semibold ${c.activityText} truncate`}>
+                    {activeWork.activity.title}
+                  </div>
+                  <div className={`text-xs ${c.statText}`}>
+                    ⏱️ {Math.floor((new Date().getTime() - activeWork.startTime.getTime()) / 60000)} min elapsed
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={() => pauseWork(() => setRefreshKey(k => k + 1))}
+                      className="flex-1 px-2 py-1.5 bg-yellow-600 hover:bg-yellow-700 text-white rounded text-xs font-semibold flex items-center justify-center gap-1"
+                    >
+                      <Pause className="h-3 w-3" />
+                      Pause
+                    </button>
+                    <button
+                      onClick={() => completeWork(() => setRefreshKey(k => k + 1))}
+                      className="flex-1 px-2 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold flex items-center justify-center gap-1"
+                    >
+                      <CheckCircle className="h-3 w-3" />
+                      Done
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Main Content View Container */}
         <div className="bg-white flex-1 overflow-y-auto">
           {selectedView === 'agenda' && selectedKid ? (
-            <AgendaView kidId={selectedKid.id} selectedDate={selectedDate} />
+            <AgendaView
+              kidId={selectedKid.id}
+              selectedDate={selectedDate}
+              key={`${selectedKid.id}-${formatDateLocal(selectedDate)}-${refreshKey}`}
+            />
           ) : selectedView === 'courses' && selectedCourse ? (
             <CoursesView selectedCourse={selectedCourse} kidId={selectedKid?.id || 0} selectedDate={selectedDate} />
           ) : selectedView === 'planner' && selectedKid ? (
@@ -406,5 +457,13 @@ export default function MainLayout() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function MainLayout() {
+  return (
+    <ActiveWorkProvider>
+      <MainLayoutContent />
+    </ActiveWorkProvider>
   );
 }

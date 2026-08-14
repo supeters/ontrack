@@ -18,8 +18,10 @@ BEGIN
   SET
     is_completed = COALESCE((p_updates->>'is_completed')::BOOLEAN, is_completed),
     completed_at = CASE
-      WHEN (p_updates->>'is_completed')::BOOLEAN = true THEN NOW()
+      WHEN (p_updates->>'is_completed')::BOOLEAN = true THEN
+        COALESCE((p_updates->>'completed_at')::DATE, NOW())
       WHEN (p_updates->>'is_completed')::BOOLEAN = false THEN NULL
+      WHEN p_updates ? 'completed_at' THEN (p_updates->>'completed_at')::DATE
       ELSE completed_at
     END,
     actual_minutes = COALESCE((p_updates->>'actual_minutes')::INTEGER, actual_minutes),
@@ -29,6 +31,8 @@ BEGIN
     plan_date = COALESCE((p_updates->>'plan_date')::DATE, plan_date),
     title = COALESCE(p_updates->>'title', title),
     description = COALESCE(p_updates->>'description', description),
+    course_id = COALESCE((p_updates->>'course_id')::INTEGER, course_id),
+    position = COALESCE((p_updates->>'position')::INTEGER, position),
     is_action_override = COALESCE((p_updates->>'is_action_override')::BOOLEAN, is_action_override),
     is_pinned = COALESCE((p_updates->>'is_pinned')::BOOLEAN, is_pinned),
     updated_at = NOW()

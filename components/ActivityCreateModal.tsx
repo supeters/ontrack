@@ -89,6 +89,16 @@ export default function ActivityCreateModal({
     );
   };
 
+  // Handle activity type change to automatically toggle isActionable for events/classes
+  const handleActivityTypeChange = (newType: string) => {
+    setActivityType(newType);
+    if (newType === 'event' || newType === 'class') {
+      setIsActionable(false);
+    } else {
+      setIsActionable(true);
+    }
+  };
+
   // Magic Quick-Add Handler
   const handleParseNL = async () => {
     if (!nlInput.trim()) return;
@@ -114,7 +124,9 @@ export default function ActivityCreateModal({
       // Auto-populate form fields from parsed output
       if (parsed.title) setTitle(parsed.title);
       if (parsed.courseId !== undefined) setCourseId(parsed.courseId);
-      if (parsed.activityType) setActivityType(parsed.activityType);
+      if (parsed.activityType) {
+        handleActivityTypeChange(parsed.activityType);
+      }
       if (parsed.estimatedMinutes !== undefined && parsed.estimatedMinutes !== null) {
         setEstimatedMinutes(parsed.estimatedMinutes.toString());
       }
@@ -186,19 +198,30 @@ export default function ActivityCreateModal({
           alert(`Failed to create recurring activity: ${error.error || 'Unknown error'}`);
         }
       } else {
+        // FIX: Safe timestamp and end time computation preventing NaN/Invalid Date bugs
         const startTimeLocal = startTime && planDate
           ? createLocalTimestamp(planDate, startTime)
           : null;
-        const endTimeLocal = startTimeLocal && estimatedMinutes
-          ? formatTimestampLocal(new Date(new Date(`${planDate}T${startTime}`).getTime() + parseInt(estimatedMinutes) * 60000))
-          : null;
+
+        const parsedMinutes = parseInt(estimatedMinutes, 10);
+        const hasValidMinutes = !isNaN(parsedMinutes) && parsedMinutes > 0;
+
+        let endTimeLocal: string | null = null;
+        if (planDate && startTime && hasValidMinutes) {
+          const startDateObj = new Date(`${planDate}T${startTime}`);
+          if (!isNaN(startDateObj.getTime())) {
+            endTimeLocal = formatTimestampLocal(
+              new Date(startDateObj.getTime() + parsedMinutes * 60000)
+            );
+          }
+        }
 
         const payload = {
           kidId,
           courseId,
           title,
           activityType,
-          estimatedMinutes: estimatedMinutes ? parseInt(estimatedMinutes) : null,
+          estimatedMinutes: hasValidMinutes ? parsedMinutes : null,
           planDate: planDate,
           startTime: startTimeLocal,
           endTime: endTimeLocal,
@@ -347,7 +370,7 @@ export default function ActivityCreateModal({
               </label>
               <select
                 value={activityType}
-                onChange={(e) => setActivityType(e.target.value)}
+                onChange={(e) => handleActivityTypeChange(e.target.value)}
                 className={`w-full px-3 py-2 border ${c.moduleBorder} rounded-lg ${c.moduleText}`}
               >
                 {activityTypes.map((type) => (
@@ -367,7 +390,7 @@ export default function ActivityCreateModal({
                 onChange={(e) => setIsActionable(e.target.checked)}
                 className="h-4 w-4"
               />
-              <label htmlFor="actionable" className={`text-sm font-medium ${c.moduleText}`}>
+              <label htmlFor="actionable" className={`text-sm font-medium ${c.moduleText} cursor-pointer`}>
                 Actionable (can be checked off)
               </label>
             </div>
@@ -432,7 +455,7 @@ export default function ActivityCreateModal({
                 onChange={(e) => setIsRecurring(e.target.checked)}
                 className="h-4 w-4"
               />
-              <label htmlFor="recurring" className={`text-sm font-medium ${c.moduleText}`}>
+              <label htmlFor="recurring" className={`text-sm font-medium ${c.moduleText} cursor-pointer`}>
                 Make this recurring
               </label>
             </div>
@@ -507,7 +530,7 @@ export default function ActivityCreateModal({
                     onChange={(e) => setRespectHolidays(e.target.checked)}
                     className="h-4 w-4"
                   />
-                  <label htmlFor="respectHolidays" className={`text-sm ${c.moduleText}`}>
+                  <label htmlFor="respectHolidays" className={`text-sm ${c.moduleText} cursor-pointer`}>
                     Skip holidays from course calendar
                   </label>
                 </div>

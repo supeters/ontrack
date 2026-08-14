@@ -11,13 +11,16 @@ import {
   FileText,
   CheckCircle2,
   Scissors,
-  BookOpen
+  BookOpen,
+  Play,
+  Zap
 } from 'lucide-react';
-import { formatDateLocal } from '@/lib/datetime';
+import { formatDateLocal, getDateStr } from '@/lib/datetime';
 
 interface Course {
   id: number;
-  title: string;
+  course_name: string;
+  academic_year?: string;
 }
 
 interface Activity {
@@ -34,20 +37,26 @@ interface Activity {
   lms_url?: string;
   parent_activity_id?: number;
   course_id?: number;
+  is_action?: boolean;
+  start_time?: string;
 }
 
 interface ActivityDetailModalProps {
   activity: Activity;
   courses?: Course[];
+  currentAcademicYear?: string;
   onClose: () => void;
   onUpdate?: () => void;
+  onLaunchFocus?: (activity: Activity) => void;
 }
 
 export default function ActivityDetailModal({
   activity,
   courses = [],
+  currentAcademicYear,
   onClose,
   onUpdate,
+  onLaunchFocus,
 }: ActivityDetailModalProps) {
   const [editedActivity, setEditedActivity] = useState(activity);
   const [saving, setSaving] = useState(false);
@@ -61,18 +70,30 @@ export default function ActivityDetailModal({
     estimatedMinutes: 15,
   });
   const [children, setChildren] = useState<Activity[]>([]);
-  const [isActionable, setIsActionable] = useState((activity as any).is_action || false);
+  const [isActionable, setIsActionable] = useState(activity.is_action ?? false);
   const [hasChanges, setHasChanges] = useState(false);
   const [isCompleted, setIsCompleted] = useState(activity.is_completed || false);
   const [actualMinutes, setActualMinutes] = useState(activity.actual_minutes || activity.estimated_minutes || 0);
-  const [completedAt, setCompletedAt] = useState(activity.completed_at || activity.plan_date || '');
+  const [completedAt, setCompletedAt] = useState(() => {
+    if (activity.completed_at) {
+      return getDateStr(activity.completed_at); // Extract just the date part YYYY-MM-DD
+    }
+    return activity.plan_date || formatDateLocal(new Date());
+  });
 
   useEffect(() => {
-    setIsActionable((activity as any).is_action || false);
+    setIsActionable(activity.is_action ?? false);
     setEditedActivity(activity);
     setIsCompleted(activity.is_completed || false);
     setActualMinutes(activity.actual_minutes || activity.estimated_minutes || 0);
-    setCompletedAt(activity.completed_at || activity.plan_date || '');
+
+    // Format completed_at to just date (YYYY-MM-DD)
+    if (activity.completed_at) {
+      setCompletedAt(getDateStr(activity.completed_at));
+    } else {
+      setCompletedAt(activity.plan_date || formatDateLocal(new Date()));
+    }
+
     setHasChanges(false);
   }, [activity]);
 
@@ -94,24 +115,37 @@ export default function ActivityDetailModal({
     }
   }, [activity.id]);
 
+  const filteredCourses = currentAcademicYear
+    ? courses.filter((c) => !c.academic_year || c.academic_year === currentAcademicYear)
+    : courses;
+
   const saveChanges = async () => {
     setSaving(true);
     try {
+      // Build updates object
+      const updates: any = {
+        description: editedActivity.description,
+        course_id: editedActivity.course_id,
+        plan_date: editedActivity.plan_date,
+        start_time: editedActivity.start_time,
+        estimated_minutes: editedActivity.estimated_minutes,
+        actual_minutes: actualMinutes,
+        is_completed: isCompleted,
+        completed_at: isCompleted ? (completedAt || formatDateLocal(new Date())) : null,
+        is_action_override: isActionable,
+      };
+
+      // Clear start_time when marking incomplete (start fresh)
+      if (activity.is_completed && !isCompleted) {
+        updates.start_time = null;
+      }
+
       await fetch('/api/activities', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           activityId: activity.id,
-          updates: {
-            description: editedActivity.description,
-            course_id: editedActivity.course_id,
-            plan_date: editedActivity.plan_date,
-            estimated_minutes: editedActivity.estimated_minutes,
-            actual_minutes: actualMinutes,
-            is_completed: isCompleted,
-            completed_at: isCompleted ? (completedAt || formatDateLocal(new Date())) : null,
-            is_action_override: isActionable,
-          },
+          updates,
         }),
       });
 
@@ -134,7 +168,6 @@ export default function ActivityDetailModal({
         if (onUpdate) onUpdate();
         onClose();
       } else {
-        // Refresh sub-tasks if child was deleted
         const response = await fetch(`/api/activities?parent_id=${activity.id}`);
         if (response.ok) {
           setChildren((await response.json()) || []);
@@ -212,11 +245,9 @@ export default function ActivityDetailModal({
     <div className="animate-in backdrop-blur-xs bg-black/40 duration-200 fade-in fixed inset-0 overflow-hidden transition-opacity z-50">
       <div className="absolute inset-0" onClick={onClose} />
 
-      {/* Side Drawer Panel */}
       <div className="fixed flex inset-y-0 max-w-full pl-10 right-0">
         <div className="bg-white border-gray-200 border-l duration-300 ease-in-out flex flex-col max-w-xl shadow-2xl slide-in-from-right transform transition-transform w-screen">
           
-          {/* Header */}
           <div className="bg-gray-50/80 border-b border-gray-100 flex flex-col gap-3 px-6 py-5">
             <div className="flex items-center justify-between">
               <div className="flex gap-2 items-center">
@@ -236,10 +267,10 @@ export default function ActivityDetailModal({
                     href={lmsUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="bg-blue-600 flex font-semibold gap-1.5 hover:bg-blue-700 items-center px-3 py-1.5 rounded-lg text-white text-xs transition-colors"
+                    className="bg-blue-600 flex font-semibold gap-1.5 hover:bg-blue-700 items-center px-3 py-1.5 rounded-lg shadow-sm text-white text-xs transition-colors"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
-                    LMS Page
+                    Open LMS Page
                   </a>
                 )}
                 <button
@@ -254,7 +285,6 @@ export default function ActivityDetailModal({
             <h2 className="font-bold leading-snug text-gray-900 text-xl">{activity.title}</h2>
           </div>
 
-          {/* Navigation Tabs & Quick Status Toggle */}
           <div className="bg-white border-b border-gray-100 flex items-center justify-between px-6 sticky top-0 z-10">
             <div className="flex gap-4 items-center">
               <button
@@ -283,55 +313,89 @@ export default function ActivityDetailModal({
                 )}
               </button>
             </div>
-
-            <button
-              type="button"
-              onClick={toggleCompletionNow}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                isCompleted
-                  ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              {isCompleted ? 'Completed' : 'Mark Complete'}
-            </button>
           </div>
 
-          {/* Scrollable Content Body */}
           <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
             {activeTab === 'details' && (
               <>
-                {/* Course Selection Dropdown */}
-                {courses.length > 0 && (
-                  <div className="bg-gray-50/70 border border-gray-100 p-3 rounded-xl space-y-1">
-                    <label className="flex font-semibold gap-1.5 items-center text-gray-600 text-xs">
-                      <BookOpen className="h-3.5 text-blue-600 w-3.5" />
-                      Associated Course
-                    </label>
-                    <select
-                      value={editedActivity.course_id || ''}
-                      onChange={(e) => handleFieldChange('course_id', Number(e.target.value) || null)}
-                      className="bg-white border border-gray-200 focus:ring-2 focus:ring-blue-500 font-medium outline-none px-3 py-1.5 rounded-lg text-gray-800 text-xs w-full"
+                {onLaunchFocus && !isCompleted && (
+                  <div className="bg-gradient-to-r flex from-blue-600 items-center justify-between p-4 rounded-2xl shadow-md text-white to-indigo-600">
+                    <div className="space-y-0.5">
+                      <div className="flex font-bold gap-1.5 items-center text-blue-200 text-xs tracking-wider uppercase">
+                        <Zap className="fill-yellow-300 h-3.5 text-yellow-300 w-3.5" />
+                        Deep Work Session
+                      </div>
+                      <p className="font-medium text-sm">Ready to lock in and crush this assignment?</p>
+                    </div>
+                    <button
+                      onClick={() => onLaunchFocus(activity)}
+                      className="active:scale-95 bg-white flex font-bold gap-1.5 hover:bg-blue-50 items-center px-4 py-2 rounded-xl shadow-sm text-blue-700 text-xs transition-transform"
                     >
-                      <option value="">Unassigned Course</option>
-                      {courses.map((course) => (
-                        <option key={course.id} value={course.id}>
-                          {course.title}
-                        </option>
-                      ))}
-                    </select>
+                      <Play className="fill-blue-700 h-3.5 w-3.5" />
+                      Start Focus Timer
+                    </button>
                   </div>
                 )}
 
-                {/* Planning & Actuals Side-by-Side */}
-                <div className="gap-3 grid grid-cols-2">
-                  {/* Planning Card */}
-                  <div className="bg-gray-50/50 border border-gray-100 p-3.5 rounded-xl space-y-2.5">
-                    <div className="flex font-bold gap-1.5 items-center text-[11px] text-gray-400 tracking-wider uppercase">
-                      <Calendar className="h-3.5 text-blue-500 w-3.5" />
-                      Plan
+                <div className="gap-3 grid grid-cols-1">
+                  {courses.length > 0 && (
+                    <div className="bg-blue-50/70 border border-blue-200 p-4 rounded-xl space-y-2">
+                      <label className="flex font-bold gap-1.5 items-center text-blue-900 text-sm">
+                        <BookOpen className="h-4 text-blue-600 w-4" />
+                        Course
+                      </label>
+                      <select
+                        value={editedActivity.course_id || ''}
+                        onChange={(e) => handleFieldChange('course_id', Number(e.target.value) || null)}
+                        className="bg-white border border-blue-200 focus:ring-2 focus:ring-blue-500 font-semibold outline-none px-3 py-2 rounded-lg text-gray-900 text-sm w-full"
+                      >
+                        <option value="">No Course Selected</option>
+                        {filteredCourses.map((course) => (
+                          <option key={course.id} value={course.id}>
+                            {course.course_name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
+                  )}
+
+                  <div className="bg-gray-50/70 border border-gray-100 p-4 rounded-xl">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <label className="flex font-bold gap-1.5 items-center text-gray-700 text-sm">
+                          <Zap className="h-4 text-emerald-600 w-4" />
+                          Actionable Status
+                        </label>
+                        <p className="text-gray-500 text-xs">Mark as actionable to show in your task list</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsActionable(!isActionable);
+                          setHasChanges(true);
+                        }}
+                        className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${
+                          isActionable ? 'bg-emerald-600' : 'bg-gray-300'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                            isActionable ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-gray-50/50 border border-gray-100 p-4 rounded-xl space-y-3">
+                  {/* Planning Section */}
+                  <div className="flex font-bold gap-1.5 items-center text-[11px] text-gray-400 tracking-wider uppercase">
+                    <Calendar className="h-3.5 text-blue-500 w-3.5" />
+                    Planning
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
                     <div>
                       <label className="block font-medium mb-1 text-gray-600 text-xs">Plan Date</label>
                       <input
@@ -342,57 +406,99 @@ export default function ActivityDetailModal({
                       />
                     </div>
                     <div>
+                      <label className="block font-medium mb-1 text-gray-600 text-xs">Start Time</label>
+                      <input
+                        type="time"
+                        value={editedActivity.start_time ? new Date(editedActivity.start_time).toTimeString().substring(0, 5) : ''}
+                        onChange={(e) => {
+                          if (e.target.value && editedActivity.plan_date) {
+                            const dateTime = `${editedActivity.plan_date}T${e.target.value}:00`;
+                            handleFieldChange('start_time', dateTime);
+                          } else {
+                            handleFieldChange('start_time', null);
+                          }
+                        }}
+                        className="bg-white border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none px-2.5 py-1.5 rounded-lg text-xs w-full"
+                      />
+                    </div>
+                    <div>
                       <label className="block font-medium mb-1 text-gray-600 text-xs">Est. Mins</label>
                       <input
                         type="number"
-                        value={editedActivity.estimated_minutes || ''}
-                        onChange={(e) => handleFieldChange('estimated_minutes', parseInt(e.target.value) || 0)}
+                        value={editedActivity.estimated_minutes || 30}
+                        onChange={(e) => handleFieldChange('estimated_minutes', parseInt(e.target.value) || 30)}
                         className="bg-white border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none px-2.5 py-1.5 rounded-lg text-xs w-full"
                       />
                     </div>
                   </div>
 
-                  {/* Actuals Card */}
-                  <div className={`p-3.5 rounded-xl border space-y-2.5 transition-colors ${
-                    isCompleted ? 'bg-emerald-50/30 border-emerald-100' : 'bg-gray-50/50 border-gray-100'
-                  }`}>
-                    <div className="flex font-bold gap-1.5 items-center text-[11px] text-gray-400 tracking-wider uppercase">
-                      <Clock className="h-3.5 text-emerald-500 w-3.5" />
-                      Actuals
+                  {/* Completion Button */}
+                  <button
+                    type="button"
+                    onClick={toggleCompletionNow}
+                    className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all ${
+                      isCompleted
+                        ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    {isCompleted ? '✓ Completed' : 'Mark Complete'}
+                  </button>
+
+                  {/* Working Since Indicator */}
+                  {activity.start_time && !isCompleted && (
+                    <div className="bg-orange-50 border border-orange-200 p-3 rounded-lg">
+                      <label className="block font-bold mb-1 text-orange-800 text-xs uppercase">⏱️ Working Since</label>
+                      <div className="text-orange-900 text-sm font-semibold">
+                        {new Date(activity.start_time).toLocaleString()}
+                      </div>
                     </div>
-                    <div>
-                      <label className="block font-medium mb-1 text-gray-600 text-xs">Completed On</label>
-                      <input
-                        type="date"
-                        value={completedAt}
-                        disabled={!isCompleted}
-                        onChange={(e) => {
-                          setCompletedAt(e.target.value);
-                          setHasChanges(true);
-                        }}
-                        className="bg-white border border-gray-200 disabled:bg-gray-100 disabled:text-gray-400 focus:ring-2 focus:ring-blue-500 outline-none px-2.5 py-1.5 rounded-lg text-xs w-full"
-                      />
-                    </div>
-                    <div>
-                      <label className="block font-medium mb-1 text-gray-600 text-xs">Actual Mins</label>
-                      <input
-                        type="number"
-                        value={actualMinutes}
-                        onChange={(e) => {
-                          setActualMinutes(parseInt(e.target.value) || 0);
-                          setHasChanges(true);
-                        }}
-                        className="bg-white border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none px-2.5 py-1.5 rounded-lg text-xs w-full"
-                      />
-                    </div>
-                  </div>
+                  )}
+
+                  {/* Completion Details (only when completed) */}
+                  {isCompleted && (
+                    <>
+                      <div className="border-t border-gray-200 pt-3 mt-3">
+                        <div className="flex font-bold gap-1.5 items-center text-[11px] text-emerald-600 tracking-wider uppercase mb-3">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          Completion Details
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block font-medium mb-1 text-gray-600 text-xs">Completed On</label>
+                            <input
+                              type="date"
+                              value={completedAt}
+                              onChange={(e) => {
+                                setCompletedAt(e.target.value);
+                                setHasChanges(true);
+                              }}
+                              className="bg-white border border-gray-200 focus:ring-2 focus:ring-emerald-500 outline-none px-2.5 py-1.5 rounded-lg text-xs w-full"
+                            />
+                          </div>
+                          <div>
+                            <label className="block font-medium mb-1 text-gray-600 text-xs">Actual Mins</label>
+                            <input
+                              type="number"
+                              value={actualMinutes}
+                              onChange={(e) => {
+                                setActualMinutes(parseInt(e.target.value) || 0);
+                                setHasChanges(true);
+                              }}
+                              className="bg-white border border-gray-200 focus:ring-2 focus:ring-emerald-500 outline-none px-2.5 py-1.5 rounded-lg text-xs w-full"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
 
-                {/* Description Header & Task Splitter Action */}
                 <div className="space-y-2">
                   <div className="bg-white flex items-center justify-between py-1 sticky top-0 z-10">
                     <label className="font-bold text-[11px] text-gray-400 tracking-wider uppercase">
-                      Description
+                      Description & Instructions
                     </label>
                     {activity.description && (
                       <button
@@ -416,12 +522,11 @@ export default function ActivityDetailModal({
                         }`}
                       >
                         <Scissors className="h-3 w-3" />
-                        {hasSelectedText ? 'Split Highlighted Text' : 'Split into Task'}
+                        {hasSelectedText ? 'Split Highlighted Text' : 'Split into Sub-task'}
                       </button>
                     )}
                   </div>
 
-                  {/* Inline Task Splitter Form with Date & Time Planning */}
                   {showCreateTaskForm && (
                     <div className="bg-blue-50/70 border border-blue-200 my-2 p-4 rounded-xl space-y-3">
                       <div className="flex items-center justify-between">
@@ -521,7 +626,7 @@ export default function ActivityDetailModal({
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({
                                 activityId: child.id,
-                                updates: { is_completed: !child.is_completed },
+                                updates: { isCompleted: !child.is_completed },
                               }),
                             });
                             const response = await fetch(`/api/activities?parent_id=${activity.id}`);
@@ -559,7 +664,6 @@ export default function ActivityDetailModal({
             )}
           </div>
 
-          {/* Footer Controls */}
           <div className="bg-gray-50/80 border-gray-100 border-t flex items-center justify-between px-6 py-4">
             <button
               onClick={() => deleteActivity(activity.id)}
