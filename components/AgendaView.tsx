@@ -794,7 +794,7 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
           kidId={kidId}
           isOpen={isCourseModalOpen}
           onClose={() => setIsCourseModalOpen(false)}
-          onRefresh={loadAgendaData}
+          onSave={loadAgendaData}
         />
       )}
 
