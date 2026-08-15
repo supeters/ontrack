@@ -83,7 +83,7 @@ function formatDateLocal(date) {
 }
 
 /**
- * Find first occurrence of a weekday on or after a date
+ * Find first occurrence of a weekday on or after startDate
  */
 function findFirstWeekday(startDate, weekday) {
   const date = parseLocalDate(startDate);
@@ -91,6 +91,7 @@ function findFirstWeekday(startDate, weekday) {
   while (date.getDay() !== weekday) {
     date.setDate(date.getDate() + 1);
   }
+
   return date;
 }
 

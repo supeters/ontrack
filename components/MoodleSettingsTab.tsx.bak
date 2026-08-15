@@ -1,0 +1,435 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useTheme } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  BookOpen, RefreshCw, Plus, Trash2, Download, CheckCircle,
+  AlertCircle, User, Link as LinkIcon
+} from 'lucide-react';
+
+interface MoodleAccount {
+  id: number;
+  kid_id: number;
+  lms_url: string;
+  lms_user_name: string;
+  name: string;
+  is_active: boolean;
+  api_token: string | null;
+  last_sync: string | null;
+}
+
+interface MoodleCourse {
+  id: number;
+  course_name: string;
+  course_code: string;
+  lms_course_id: string;
+  kid_id: number;
+  lms_account_id: number;
+  lms_synced_at: string | null;
+}
+
+interface LocalCourse {
+  id: number;
+  course_name: string;
+  lms_id: string | null;
+  kid_id: number;
+}
+
+export default function MoodleSettingsTab() {
+  const { theme } = useTheme();
+  const { selectedKid, kids } = useAuth();
+  const c = theme.colors;
+
+  const [moodleAccounts, setMoodleAccounts] = useState<MoodleAccount[]>([]);
+  const [moodleCourses, setMoodleCourses] = useState<MoodleCourse[]>([]);
+  const [localCourses, setLocalCourses] = useState<LocalCourse[]>([]);
+  const [syncing, setSyncing] = useState(false);
+  const [testing, setTesting] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  // Add account form
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newAccount, setNewAccount] = useState({
+    kid_id: selectedKid?.id || 0,
+    moodle_url: 'https://mpoa.memoriapress.com',
+    username: '',
+    password: ''
+  });
+
+  useEffect(() => {
+    loadMoodleAccounts();
+    loadLocalCourses();
+  }, [selectedKid]);
+
+  useEffect(() => {
+    if (moodleAccounts.length > 0) {
+      loadMoodleCourses();
+    }
+  }, [moodleAccounts]);
+
+  const loadMoodleAccounts = async () => {
+    if (!selectedKid) return;
+    try {
+      const res = await fetch(`/api/moodle/accounts?kidId=${selectedKid.id}`);
+      const data = await res.json();
+      setMoodleAccounts(data || []);
+    } catch (err) {
+      console.error('Error loading Moodle accounts:', err);
+    }
+  };
+
+  const loadMoodleCourses = async () => {
+    if (!selectedKid) return;
+    try {
+      const res = await fetch(`/api/moodle/courses?kidId=${selectedKid.id}`);
+      const data = await res.json();
+      setMoodleCourses(data || []);
+    } catch (err) {
+      console.error('Error loading Moodle courses:', err);
+    }
+  };
+
+  const loadLocalCourses = async () => {
+    if (!selectedKid) return;
+    try {
+      const res = await fetch(`/api/courses?kidId=${selectedKid.id}`);
+      const data = await res.json();
+      setLocalCourses(data || []);
+    } catch (err) {
+      console.error('Error loading local courses:', err);
+    }
+  };
+
+  const handleAddAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const res = await fetch('/api/moodle/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newAccount)
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to add account');
+      }
+
+      setSuccess('Moodle account added successfully!');
+      setShowAddForm(false);
+      setNewAccount({
+        kid_id: selectedKid?.id || 0,
+        moodle_url: 'https://mpoa.memoriapress.com',
+        username: '',
+        password: ''
+      });
+      loadMoodleAccounts();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const testConnection = async (accountId: number) => {
+    setTesting(accountId);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const res = await fetch(`/api/moodle/test-connection?accountId=${accountId}`);
+      const data = await res.json();
+
+      if (data.success) {
+        setSuccess('Connection successful!');
+        loadMoodleAccounts();
+      } else {
+        setError(data.error || 'Connection failed');
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setTesting(null);
+    }
+  };
+
+  const syncCourses = async (accountId: number) => {
+    setSyncing(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const res = await fetch('/api/moodle/sync-courses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId })
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setSuccess(`Synced ${data.coursesCount} courses and ${data.assignmentsCount} assignments!`);
+        loadMoodleCourses();
+        loadLocalCourses();
+      } else {
+        setError(data.error || 'Sync failed');
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const deleteAccount = async (accountId: number) => {
+    if (!confirm('Delete this Moodle account? This will not delete synced courses.')) return;
+
+    try {
+      await fetch(`/api/moodle/accounts?id=${accountId}`, { method: 'DELETE' });
+      loadMoodleAccounts();
+      setSuccess('Account deleted successfully');
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const matchCourse = async (moodleCourseId: number, localCourseId: number | null) => {
+    try {
+      await fetch('/api/moodle/match-course', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          moodleCourseId,
+          localCourseId
+        })
+      });
+      loadMoodleCourses();
+      loadLocalCourses();
+      setSuccess('Course matching updated');
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <div>
+      {/* Error/Success Messages */}
+      {error && (
+        <div className={`mb-4 p-3 rounded-lg bg-red-50 border border-red-200 flex items-center gap-2`}>
+          <AlertCircle className="h-4 w-4 text-red-600" />
+          <span className="text-sm text-red-800">{error}</span>
+        </div>
+      )}
+      {success && (
+        <div className={`mb-4 p-3 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2`}>
+          <CheckCircle className="h-4 w-4 text-green-600" />
+          <span className="text-sm text-green-800">{success}</span>
+        </div>
+      )}
+
+      {/* Moodle Accounts Section */}
+      <div className="mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className={`text-lg font-semibold ${c.moduleText}`}>Moodle Accounts</h2>
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
+            className={`flex items-center gap-2 px-4 py-2 ${c.checkboxChecked} text-white rounded-lg`}
+          >
+            <Plus className="h-4 w-4" />
+            Add Account
+          </button>
+        </div>
+
+        {showAddForm && (
+          <form onSubmit={handleAddAccount} className={`mb-6 p-4 border ${c.moduleBorder} rounded-lg ${c.cardBg}`}>
+            <div className="space-y-3">
+              <div>
+                <label className={`block text-sm font-medium ${c.moduleText} mb-1`}>Student *</label>
+                <select
+                  required
+                  value={newAccount.kid_id}
+                  onChange={(e) => setNewAccount({ ...newAccount, kid_id: parseInt(e.target.value) })}
+                  className={`w-full px-3 py-2 border ${c.moduleBorder} rounded-lg ${c.moduleText}`}
+                >
+                  <option value="">Select student...</option>
+                  {kids?.map((kid) => (
+                    <option key={kid.id} value={kid.id}>{kid.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={`block text-sm font-medium ${c.moduleText} mb-1`}>Moodle URL *</label>
+                <input
+                  type="url"
+                  required
+                  value={newAccount.moodle_url}
+                  onChange={(e) => setNewAccount({ ...newAccount, moodle_url: e.target.value })}
+                  className={`w-full px-3 py-2 border ${c.moduleBorder} rounded-lg ${c.moduleText}`}
+                />
+              </div>
+              <div>
+                <label className={`block text-sm font-medium ${c.moduleText} mb-1`}>Username *</label>
+                <input
+                  type="text"
+                  required
+                  value={newAccount.username}
+                  onChange={(e) => setNewAccount({ ...newAccount, username: e.target.value })}
+                  className={`w-full px-3 py-2 border ${c.moduleBorder} rounded-lg ${c.moduleText}`}
+                />
+              </div>
+              <div>
+                <label className={`block text-sm font-medium ${c.moduleText} mb-1`}>Password *</label>
+                <input
+                  type="password"
+                  required
+                  value={newAccount.password}
+                  onChange={(e) => setNewAccount({ ...newAccount, password: e.target.value })}
+                  className={`w-full px-3 py-2 border ${c.moduleBorder} rounded-lg ${c.moduleText}`}
+                />
+              </div>
+              <div className="flex gap-2">
+                <button type="submit" className={`px-4 py-2 ${c.checkboxChecked} text-white rounded-lg`}>
+                  Add & Test
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAddForm(false)}
+                  className={`px-4 py-2 border ${c.moduleBorder} rounded-lg ${c.moduleText}`}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+
+        <div className="space-y-2">
+          {moodleAccounts.map((account) => {
+            const kidName = kids?.find(k => k.id === account.kid_id)?.name || 'Unknown';
+            return (
+              <div key={account.id} className={`p-4 border ${c.moduleBorder} rounded-lg ${c.cardBg}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <User className={`h-5 w-5 ${c.mutedText}`} />
+                    <div>
+                      <div className={`font-medium ${c.moduleText}`}>{kidName}</div>
+                      <div className={`text-sm ${c.mutedText}`}>{account.lms_user_name} @ {account.lms_url}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {account.is_active ? (
+                      <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">Connected</span>
+                    ) : (
+                      <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full">Not Connected</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => testConnection(account.id)}
+                    disabled={testing === account.id}
+                    className={`flex items-center gap-1 px-3 py-1 text-sm bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 disabled:opacity-50`}
+                  >
+                    {testing === account.id ? (
+                      <RefreshCw className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3 w-3" />
+                    )}
+                    Test
+                  </button>
+                  <button
+                    onClick={() => syncCourses(account.id)}
+                    disabled={syncing || !account.is_active}
+                    className={`flex items-center gap-1 px-3 py-1 text-sm bg-green-50 text-green-700 rounded-lg hover:bg-green-100 disabled:opacity-50`}
+                  >
+                    {syncing ? (
+                      <RefreshCw className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Download className="h-3 w-3" />
+                    )}
+                    Sync Courses
+                  </button>
+                  <button
+                    onClick={() => deleteAccount(account.id)}
+                    className={`flex items-center gap-1 px-3 py-1 text-sm bg-red-50 text-red-700 rounded-lg hover:bg-red-100`}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    Delete
+                  </button>
+                </div>
+                {account.last_sync && (
+                  <div className={`text-xs ${c.mutedText} mt-2`}>
+                    Last sync: {new Date(account.last_sync).toLocaleString()}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {moodleAccounts.length === 0 && (
+            <div className={`p-8 text-center border ${c.moduleBorder} rounded-lg ${c.cardBg}`}>
+              <BookOpen className={`h-12 w-12 ${c.mutedText} mx-auto mb-2`} />
+              <p className={`${c.mutedText}`}>No Moodle accounts configured</p>
+              <p className={`text-sm ${c.mutedText} mt-1`}>Add a Moodle account to sync courses</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Course Mapping Section */}
+      {moodleCourses.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className={`text-lg font-semibold ${c.moduleText}`}>Course Mapping</h2>
+            <p className={`text-sm ${c.mutedText}`}>
+              Match Moodle courses with local courses (optional)
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            {moodleCourses.map((moodleCourse) => {
+              const kidName = kids?.find(k => k.id === moodleCourse.kid_id)?.name || 'Unknown';
+              const matchedCourse = localCourses.find(c => c.lms_id === moodleCourse.lms_course_id);
+
+              return (
+                <div key={moodleCourse.id} className={`p-4 border ${c.moduleBorder} rounded-lg ${c.cardBg}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className={`font-medium ${c.moduleText}`}>{moodleCourse.course_name}</div>
+                      <div className={`text-sm ${c.mutedText}`}>
+                        {kidName} • {moodleCourse.course_code}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <LinkIcon className={`h-4 w-4 ${c.mutedText}`} />
+                      <select
+                        value={matchedCourse?.id || ''}
+                        onChange={(e) => matchCourse(moodleCourse.id, e.target.value ? parseInt(e.target.value) : null)}
+                        className={`px-3 py-1 text-sm border ${c.moduleBorder} rounded-lg ${c.moduleText}`}
+                      >
+                        <option value="">Auto-match by lms_id</option>
+                        {localCourses
+                          .filter(c => c.kid_id === moodleCourse.kid_id)
+                          .map((course) => (
+                            <option key={course.id} value={course.id}>
+                              {course.course_name}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  </div>
+                  {moodleCourse.lms_synced_at && (
+                    <div className={`text-xs ${c.mutedText} mt-2`}>
+                      Synced: {new Date(moodleCourse.lms_synced_at).toLocaleString()}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

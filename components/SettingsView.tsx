@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
-import { School, Calendar as CalendarIcon, Plane, Plus, Edit2, Trash2, Download } from 'lucide-react';
+import { School, Calendar as CalendarIcon, Plane, Plus, Edit2, Trash2, Download, BookOpen } from 'lucide-react';
 import CalendarExport from './CalendarExport';
+import MoodleSettingsTab from './MoodleSettingsTab';
 
 interface School {
   id: number;
@@ -33,11 +34,15 @@ interface Holiday {
   description?: string;
 }
 
-export default function SettingsView() {
+interface SettingsViewProps {
+  selectedSchoolYear: string;
+}
+
+export default function SettingsView({ selectedSchoolYear }: SettingsViewProps) {
   const { theme } = useTheme();
   const c = theme.colors;
 
-  const [activeTab, setActiveTab] = useState<'schools' | 'calendars' | 'holidays' | 'export'>('schools');
+  const [activeTab, setActiveTab] = useState<'schools' | 'calendars' | 'holidays' | 'moodle' | 'export'>('schools');
   const [schools, setSchools] = useState<School[]>([]);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
@@ -264,6 +269,19 @@ export default function SettingsView() {
             <div className="flex gap-2 items-center">
               <Plane className="h-4 w-4" />
               Holidays
+            </div>
+          </button>
+          <button
+            onClick={() => setActiveTab('moodle')}
+            className={`px-4 py-3 font-medium transition-colors border-b-2 ${
+              activeTab === 'moodle'
+                ? `${c.checkboxChecked.split(' ')[0].replace('bg-', 'border-')} ${c.moduleText}`
+                : `border-transparent ${c.mutedText} hover:${c.moduleText}`
+            }`}
+          >
+            <div className="flex gap-2 items-center">
+              <BookOpen className="h-4 w-4" />
+              Moodle
             </div>
           </button>
           <button
@@ -617,6 +635,10 @@ export default function SettingsView() {
               })}
             </div>
           </div>
+        )}
+
+        {activeTab === 'moodle' && (
+          <MoodleSettingsTab selectedSchoolYear={selectedSchoolYear} />
         )}
 
         {activeTab === 'export' && (

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   X,
   Calendar,
@@ -15,7 +15,8 @@ import {
   Play,
   Zap
 } from 'lucide-react';
-import { formatDateLocal, getDateStr } from '@/lib/datetime';
+import { formatDateLocal, getDateStr, parseLocalTimestamp } from '@/lib/datetime';
+import { parseChecklist, type DailyChecklist } from '@/lib/parseChecklist';
 
 interface Course {
   id: number;
@@ -39,6 +40,7 @@ interface Activity {
   course_id?: number;
   is_action?: boolean;
   start_time?: string;
+  daily_checklist?: any;
 }
 
 interface ActivityDetailModalProps {
@@ -60,8 +62,9 @@ export default function ActivityDetailModal({
 }: ActivityDetailModalProps) {
   const [editedActivity, setEditedActivity] = useState(activity);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'details' | 'tasks'>('details');
+  const [activeTab, setActiveTab] = useState<'details' | 'checklist' | 'tasks'>('details');
   const [hasSelectedText, setHasSelectedText] = useState(false);
+  const [selectedText, setSelectedText] = useState('');
   const [showCreateTaskForm, setShowCreateTaskForm] = useState(false);
   const [newTaskData, setNewTaskData] = useState({
     title: '',
@@ -73,6 +76,7 @@ export default function ActivityDetailModal({
   const [isActionable, setIsActionable] = useState(activity.is_action ?? false);
   const [hasChanges, setHasChanges] = useState(false);
   const [isCompleted, setIsCompleted] = useState(activity.is_completed || false);
+  const [checklist, setChecklist] = useState<DailyChecklist | null>(null);
   const [actualMinutes, setActualMinutes] = useState(activity.actual_minutes || activity.estimated_minutes || 0);
   const [completedAt, setCompletedAt] = useState(() => {
     if (activity.completed_at) {
@@ -81,11 +85,23 @@ export default function ActivityDetailModal({
     return activity.plan_date || formatDateLocal(new Date());
   });
 
+  const actualMinutesRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     setIsActionable(activity.is_action ?? false);
     setEditedActivity(activity);
     setIsCompleted(activity.is_completed || false);
     setActualMinutes(activity.actual_minutes || activity.estimated_minutes || 0);
+
+    // Parse or load checklist
+    if (activity.daily_checklist) {
+      setChecklist(activity.daily_checklist);
+    } else if (activity.description) {
+      const parsed = parseChecklist(activity.description);
+      if (parsed) {
+        setChecklist(parsed);
+      }
+    }
 
     // Format completed_at to just date (YYYY-MM-DD)
     if (activity.completed_at) {
@@ -135,8 +151,8 @@ export default function ActivityDetailModal({
         is_action_override: isActionable,
       };
 
-      // Clear start_time when marking incomplete (start fresh)
-      if (activity.is_completed && !isCompleted) {
+      // Clear start_time when marking complete or incomplete
+      if (isCompleted || (activity.is_completed && !isCompleted)) {
         updates.start_time = null;
       }
 
@@ -190,9 +206,29 @@ export default function ActivityDetailModal({
       ? completedAt || editedActivity.plan_date || formatDateLocal(new Date())
       : '';
 
+    // Calculate actual minutes from start_time if it exists
+    let calculatedActualMinutes = actualMinutes;
+    if (nextCompleted && editedActivity.start_time) {
+      const { date: startDate } = parseLocalTimestamp(editedActivity.start_time);
+      if (startDate) {
+        const elapsedMs = new Date().getTime() - startDate.getTime();
+        const elapsedMinutes = Math.round(elapsedMs / 60000);
+        calculatedActualMinutes = (editedActivity.actual_minutes || 0) + elapsedMinutes;
+        setActualMinutes(calculatedActualMinutes);
+      }
+    }
+
     setIsCompleted(nextCompleted);
     setCompletedAt(nextCompletedAt);
     setHasChanges(true);
+
+    // Focus actual minutes field when marking complete
+    if (nextCompleted) {
+      setTimeout(() => {
+        actualMinutesRef.current?.focus();
+        actualMinutesRef.current?.select();
+      }, 100);
+    }
   };
 
   const createTask = async () => {
@@ -297,6 +333,21 @@ export default function ActivityDetailModal({
               >
                 Overview & Schedule
               </button>
+              {checklist && Object.keys(checklist).length > 0 && (
+                <button
+                  onClick={() => setActiveTab('checklist')}
+                  className={`py-3 text-sm font-semibold border-b-2 flex items-center gap-1.5 transition-colors ${
+                    activeTab === 'checklist'
+                      ? 'border-blue-600 text-blue-600'
+                      : 'border-transparent text-gray-400 hover:text-gray-700'
+                  }`}
+                >
+                  Checklist
+                  <span className="bg-gray-100 font-bold px-2 py-0.5 rounded-full text-gray-700 text-xs">
+                    {Object.keys(checklist).length}
+                  </span>
+                </button>
+              )}
               <button
                 onClick={() => setActiveTab('tasks')}
                 className={`py-3 text-sm font-semibold border-b-2 flex items-center gap-1.5 transition-colors ${
@@ -407,19 +458,31 @@ export default function ActivityDetailModal({
                     </div>
                     <div>
                       <label className="block font-medium mb-1 text-gray-600 text-xs">Start Time</label>
-                      <input
-                        type="time"
-                        value={editedActivity.start_time ? new Date(editedActivity.start_time).toTimeString().substring(0, 5) : ''}
-                        onChange={(e) => {
-                          if (e.target.value && editedActivity.plan_date) {
-                            const dateTime = `${editedActivity.plan_date}T${e.target.value}:00`;
-                            handleFieldChange('start_time', dateTime);
-                          } else {
-                            handleFieldChange('start_time', null);
-                          }
-                        }}
-                        className="bg-white border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none px-2.5 py-1.5 rounded-lg text-xs w-full"
-                      />
+                      <div className="flex gap-1">
+                        <input
+                          type="time"
+                          value={editedActivity.start_time ? new Date(editedActivity.start_time).toTimeString().substring(0, 5) : ''}
+                          onChange={(e) => {
+                            if (e.target.value && editedActivity.plan_date) {
+                              const dateTime = `${editedActivity.plan_date}T${e.target.value}:00`;
+                              handleFieldChange('start_time', dateTime);
+                            } else {
+                              handleFieldChange('start_time', null);
+                            }
+                          }}
+                          className="bg-white border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none px-2.5 py-1.5 rounded-lg text-xs flex-1"
+                        />
+                        {editedActivity.start_time && (
+                          <button
+                            type="button"
+                            onClick={() => handleFieldChange('start_time', null)}
+                            className="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded-lg text-xs font-medium text-gray-700"
+                            title="Clear start time"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div>
                       <label className="block font-medium mb-1 text-gray-600 text-xs">Est. Mins</label>
@@ -478,15 +541,16 @@ export default function ActivityDetailModal({
                             />
                           </div>
                           <div>
-                            <label className="block font-medium mb-1 text-gray-600 text-xs">Actual Mins</label>
+                            <label className="block font-medium mb-1 text-gray-600 text-xs font-bold">Actual Mins ⭐</label>
                             <input
+                              ref={actualMinutesRef}
                               type="number"
                               value={actualMinutes}
                               onChange={(e) => {
                                 setActualMinutes(parseInt(e.target.value) || 0);
                                 setHasChanges(true);
                               }}
-                              className="bg-white border border-gray-200 focus:ring-2 focus:ring-emerald-500 outline-none px-2.5 py-1.5 rounded-lg text-xs w-full"
+                              className="bg-yellow-50 border-2 border-yellow-400 focus:ring-2 focus:ring-yellow-500 font-bold outline-none px-2.5 py-1.5 rounded-lg text-sm w-full"
                             />
                           </div>
                         </div>
@@ -503,7 +567,6 @@ export default function ActivityDetailModal({
                     {activity.description && (
                       <button
                         onClick={() => {
-                          const selectedText = window.getSelection()?.toString().trim();
                           if (selectedText) {
                             const lines = selectedText.split('\n').filter((l) => l.trim());
                             setNewTaskData({
@@ -588,8 +651,9 @@ export default function ActivityDetailModal({
                         dangerouslySetInnerHTML={{ __html: activity.description }}
                         onMouseUp={() => {
                           setTimeout(() => {
-                            const selectedText = window.getSelection()?.toString().trim();
-                            setHasSelectedText(Boolean(selectedText));
+                            const text = window.getSelection()?.toString().trim();
+                            setSelectedText(text || '');
+                            setHasSelectedText(Boolean(text));
                           }, 10);
                         }}
                       />
@@ -603,14 +667,82 @@ export default function ActivityDetailModal({
               </>
             )}
 
+            {activeTab === 'checklist' && checklist && (
+              <div className="space-y-3">
+                <div className="bg-blue-50/50 border border-blue-200 p-4 rounded-xl space-y-3">
+                  <h3 className="font-bold text-blue-900 text-sm">Weekly Checklist</h3>
+                  <div className="space-y-2">
+                    {Object.entries(checklist).map(([key, item]) => (
+                      <div key={key} className="bg-white border border-blue-100 p-3 rounded-lg space-y-2">
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={item.completed}
+                            onChange={async () => {
+                              const updated = {
+                                ...checklist,
+                                [key]: { ...item, completed: !item.completed }
+                              };
+                              setChecklist(updated);
+
+                              // Save to database
+                              await fetch('/api/activities', {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  activityId: activity.id,
+                                  updates: { daily_checklist: updated }
+                                })
+                              });
+                            }}
+                            className="mt-1 rounded text-blue-600 focus:ring-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between mb-2">
+                              <p className={`font-semibold text-sm ${item.completed ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                                {item.label}
+                              </p>
+                              <button
+                                onClick={() => {
+                                  setNewTaskData({
+                                    title: item.label,
+                                    description: item.tasks,
+                                    planDate: editedActivity.plan_date || '',
+                                    estimatedMinutes: 30
+                                  });
+                                  setShowCreateTaskForm(true);
+                                  setActiveTab('details');
+                                }}
+                                className="text-blue-600 hover:text-blue-700 text-xs font-semibold px-2 py-1 hover:bg-blue-100 rounded shrink-0"
+                              >
+                                Make Task
+                              </button>
+                            </div>
+                            <div
+                              className="prose prose-sm max-w-none text-gray-700"
+                              dangerouslySetInnerHTML={{ __html: item.tasks }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {activeTab === 'tasks' && (
               <div className="space-y-3">
+                {/* Sub-tasks Section */}
+                <div className="font-bold text-xs text-gray-400 tracking-wider uppercase">
+                  Created Sub-tasks
+                </div>
                 {children.length === 0 ? (
-                  <div className="py-16 space-y-2 text-center text-gray-400">
-                    <FileText className="h-8 mx-auto opacity-30 w-8" />
-                    <p className="font-medium text-sm">No sub-tasks yet</p>
-                    <p className="max-w-xs mx-auto text-gray-400 text-xs">
-                      Highlight text inside the overview tab and click "Split" to create actionable tasks.
+                  <div className="py-8 space-y-2 text-center text-gray-400">
+                    <FileText className="h-6 mx-auto opacity-30 w-6" />
+                    <p className="font-medium text-xs">No sub-tasks yet</p>
+                    <p className="max-w-xs mx-auto text-gray-400 text-[11px]">
+                      Use "Make Task" above or highlight text in the overview tab.
                     </p>
                   </div>
                 ) : (

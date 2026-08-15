@@ -628,7 +628,7 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
             >
               <Clock className={`h-4 w-4 ${c.moduleIcon}`} />
               <span className={`text-xs font-bold uppercase tracking-wider ${c.moduleText}`}>
-                Backlog & Upstream Tasks
+                Coming Up
               </span>
             </button>
 

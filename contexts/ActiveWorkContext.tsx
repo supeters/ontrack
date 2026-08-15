@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, ReactNode } from 'react';
-import { formatDateLocal } from '@/lib/datetime';
+import { formatDateLocal, formatTimestampLocal } from '@/lib/datetime';
 
 interface ActiveWork {
   activity: any;
@@ -65,7 +65,7 @@ export function ActiveWorkProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({
           activityId: activity.id,
           updates: {
-            start_time: new Date().toISOString(),
+            start_time: formatTimestampLocal(new Date()),
           },
         }),
       });
@@ -98,7 +98,7 @@ export function ActiveWorkProvider({ children }: { children: ReactNode }) {
           isActionable: false,
           parentActivityId: activeWork.activity.id,
           isCompleted: true,
-          completedAt: new Date().toISOString(),
+          completedAt: formatTimestampLocal(new Date()),
         }),
       });
 
@@ -135,7 +135,7 @@ export function ActiveWorkProvider({ children }: { children: ReactNode }) {
           activityId: activeWork.activity.id,
           updates: {
             is_completed: true,
-            completed_at: new Date().toISOString(),
+            completed_at: formatTimestampLocal(new Date()),
             actual_minutes: currentActualMinutes + elapsed,
             start_time: null,
           },

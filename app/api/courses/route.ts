@@ -23,6 +23,10 @@ export async function GET(request: NextRequest) {
         subject,
         teacher,
         calendar_id,
+        lms_course_id,
+        work_days,
+        class_days,
+        exclusion_patterns,
         schools:school_id (
           name,
           nickname
@@ -71,6 +75,10 @@ export async function GET(request: NextRequest) {
       schoolNickname: course.schools?.nickname || course.schools?.name || 'No school',
       school: course.schools?.name || 'No school',
       calendar_id: course.calendar_id,
+      lms_course_id: course.lms_course_id,
+      work_days: course.work_days,
+      class_days: course.class_days,
+      exclusion_patterns: course.exclusion_patterns,
     }));
 
     return NextResponse.json(formattedCourses);

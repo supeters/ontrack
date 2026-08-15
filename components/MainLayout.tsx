@@ -444,7 +444,7 @@ function MainLayoutContent() {
           ) : selectedView === 'calendar' && selectedKid ? (
             <CalendarView kidId={selectedKid.id} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />
           ) : selectedView === 'settings' ? (
-            <SettingsView />
+            <SettingsView selectedSchoolYear={selectedSchoolYear} />
           ) : (
             <div className="flex h-full items-center justify-center">
               <div className="text-center text-stone-400">

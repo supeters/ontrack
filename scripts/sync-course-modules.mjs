@@ -23,6 +23,54 @@ const COURSE_ID = courseIdArg ? parseInt(courseIdArg, 10) : 58;
 const SYNC_MODE = modeArg && ['all', 'incremental'].includes(modeArg.toLowerCase()) ? modeArg.toLowerCase() : 'incremental';
 
 /**
+ * Parse daily checklist from description
+ */
+function parseChecklist(description) {
+  if (!description) return null;
+
+  // Remove HTML tags for parsing
+  const plainText = description.replace(/<[^>]*>/g, '\n').trim();
+
+  // Try "Day X:" pattern first
+  const dayNumberPattern = /Day\s+(\d+)[:\-\s]+((?:(?!Day\s+\d+).)+)/gis;
+  const dayMatches = [...plainText.matchAll(dayNumberPattern)];
+
+  if (dayMatches.length > 0) {
+    const checklist = {};
+    dayMatches.forEach((match) => {
+      const dayNum = match[1];
+      const tasks = match[2].trim();
+      checklist[`day${dayNum}`] = {
+        label: `Day ${dayNum}`,
+        tasks,
+        completed: false
+      };
+    });
+    return checklist;
+  }
+
+  // Try weekday pattern: Monday, Tuesday, etc.
+  const weekdayPattern = /(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)[:\-\s]+((?:(?!(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)).)+)/gis;
+  const weekdayMatches = [...plainText.matchAll(weekdayPattern)];
+
+  if (weekdayMatches.length > 0) {
+    const checklist = {};
+    weekdayMatches.forEach((match, index) => {
+      const weekday = match[1];
+      const tasks = match[2].trim();
+      checklist[`day${index + 1}`] = {
+        label: weekday,
+        tasks,
+        completed: false
+      };
+    });
+    return checklist;
+  }
+
+  return null;
+}
+
+/**
  * Get course from database
  */
 async function getCourse(courseId) {
@@ -137,6 +185,15 @@ async function syncCourseContents(lmsAccount, course, isIncremental = false) {
       .eq('course_id', course.id)
       .single();
 
+    // Section 0 is usually "General" - not actionable
+    const isSection0 = section.section === 0;
+
+    // Parse daily checklist from section description (skip section 0)
+    const dailyChecklist = !isSection0 ? parseChecklist(section.summary) : null;
+    if (dailyChecklist) {
+      console.log(`   📋 Parsed checklist for ${section.name}: ${Object.keys(dailyChecklist).length} days`);
+    }
+
     const sectionData = {
       title: section.name || `Section ${section.section}`,
       description: section.summary || null,
@@ -148,6 +205,9 @@ async function syncCourseContents(lmsAccount, course, isIncremental = false) {
       lms_source: 'moodle',
       position: section.section || 0,
       is_hidden: section.visible === 0,
+      is_action_sync: !isSection0,  // Section 0 is not actionable
+      item_needs_processing: !isSection0,  // Only process sections > 0
+      daily_checklist: dailyChecklist,
       lms_synced_at: new Date().toISOString()
     };
 
@@ -164,6 +224,7 @@ async function syncCourseContents(lmsAccount, course, isIncremental = false) {
 
     for (const module of section.modules || []) {
       const moduleId = module.id.toString();
+      const moduleAdded = module.added || 0;
       const moduleModified = module.timemodified || 0;
 
       const { data: existingModule } = await supabase
@@ -173,14 +234,33 @@ async function syncCourseContents(lmsAccount, course, isIncremental = false) {
         .eq('course_id', course.id)
         .single();
 
-      // Skip in incremental mode if the module hasn't been modified since last sync
-      if (isIncremental && existingModule && moduleModified > 0 && moduleModified <= lastSyncTime) {
-        stats.modules.skipped++;
-        continue;
+      // Skip in incremental mode if the module hasn't been modified or added since last sync
+      if (isIncremental && existingModule) {
+        const mostRecentChange = Math.max(moduleAdded, moduleModified);
+
+        // Debug: Log for first few items
+        if (stats.modules.created + stats.modules.updated + stats.modules.skipped < 3) {
+          console.log(`   🔍 ${module.name}`);
+          console.log(`      added: ${moduleAdded} (${moduleAdded ? new Date(moduleAdded * 1000).toISOString() : 'n/a'})`);
+          console.log(`      timemodified: ${moduleModified} (${moduleModified ? new Date(moduleModified * 1000).toISOString() : 'n/a'})`);
+          console.log(`      mostRecentChange: ${mostRecentChange} (${mostRecentChange ? new Date(mostRecentChange * 1000).toISOString() : 'n/a'})`);
+          console.log(`      lastSyncTime: ${lastSyncTime} (${new Date(lastSyncTime * 1000).toISOString()})`);
+          console.log(`      Decision: ${mostRecentChange <= lastSyncTime ? 'SKIP' : 'UPDATE'}`);
+        }
+
+        if (mostRecentChange === 0 || mostRecentChange <= lastSyncTime) {
+          stats.modules.skipped++;
+          continue;
+        }
       }
 
       const activityType = getActivityType(module.modname);
       const resourceUrl = module.url || `${lmsAccount.lms_url}/mod/${module.modname}/view.php?id=${module.id}`;
+
+      // For Moodle: labels often contain weekly breakdown descriptions
+      // Make labels actionable so they show in the student's task list
+      // BUT: if parent is Section 0, don't make children actionable
+      const isActionable = !isSection0 && (activityType === 'assignment' || module.modname === 'label');
 
       const moduleData = {
         title: module.name || 'Unnamed',
@@ -195,7 +275,7 @@ async function syncCourseContents(lmsAccount, course, isIncremental = false) {
         resource_url: resourceUrl,
         position: module.indent || 0,
         is_hidden: module.visible === 0,
-        is_action_sync: activityType === 'assignment',
+        is_action_sync: isActionable,
         item_needs_processing: true,
         lms_synced_at: new Date().toISOString()
       };
