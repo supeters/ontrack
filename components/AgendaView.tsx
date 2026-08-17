@@ -20,7 +20,6 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
   const { activeWork, startWork } = useActiveWork();
 
   const [loading, setLoading] = useState(true);
-  const [courses, setCourses] = useState<any[]>([]);
   const [overdueActivities, setOverdueActivities] = useState<any[]>([]);
   const [todayActivities, setTodayActivities] = useState<any[]>([]);
   const [nextModuleActivities, setNextModuleActivities] = useState<any[]>([]);
@@ -74,7 +73,6 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
       const response = await fetch(`/api/agenda?kidId=${kidId}&date=${selectedDateStr}`);
       const data = await response.json();
 
-      setCourses(data.courses || []);
       setOverdueActivities(data.overdue_activities || []);
       setTodayActivities(data.today_activities || []);
       setNextModuleActivities(data.next_module_activities ?? data[Object.keys(data)[4]] ?? []);
@@ -250,33 +248,39 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
     }
   };
 
-  const handleDropOnBacklog = async (e: React.DragEvent, targetDateKey?: string) => {
-    e.preventDefault();
-    if (backlogGroupBy !== 'date' || !targetDateKey) return;
+ const handleDropOnBacklog = async (e: React.DragEvent, targetDateKey?: string) => {
+  e.preventDefault();
+  if (backlogGroupBy !== 'date' || !targetDateKey) return;
 
-    try {
-      const dataStr = e.dataTransfer.getData('text/plain');
-      if (!dataStr) return;
-      const { activity, sourceList } = JSON.parse(dataStr);
+  try {
+    const dataStr = e.dataTransfer.getData('text/plain');
+    if (!dataStr) return;
+    const { activity, sourceList } = JSON.parse(dataStr);
 
-      if (sourceList === 'focus') {
-        const newPlanDate = targetDateKey === 'Unscheduled' ? null : targetDateKey;
-        await fetch('/api/activities', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            activityId: activity.id,
-            updates: {
-              plan_date: newPlanDate,
-            },
-          }),
-        });
-        loadAgendaData();
-      }
-    } catch (err) {
-      console.error('Error dropping item into backlog bin:', err);
+    // Allow dropping from 'focus' or from another backlog date card
+    if (sourceList === 'focus' || sourceList === 'backlog') {
+      const newPlanDate = targetDateKey === 'Unscheduled' ? null : targetDateKey;
+      
+      // Optional optimization: skip if dropped onto its existing date
+      const currentPlanDate = activity.plan_date ? getDateStr(activity.plan_date) : 'Unscheduled';
+      if (currentPlanDate === targetDateKey) return;
+
+      await fetch('/api/activities', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          activityId: activity.id,
+          updates: {
+            plan_date: newPlanDate,
+          },
+        }),
+      });
+      loadAgendaData();
     }
-  };
+  } catch (err) {
+    console.error('Error dropping item into backlog bin:', err);
+  }
+};
 
   const handleStartWork = async (activity: any, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -569,12 +573,12 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
                     <button
                       onClick={(e) => handleStartWork(activity, e)}
                       className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                        activeWork?.activity.id === activity.id
+                        activity.start_time
                           ? 'bg-emerald-600 text-white'
                           : 'bg-blue-600 text-white hover:bg-blue-700'
                       }`}
                     >
-                      {activeWork?.activity.id === activity.id ? '▶️ Working...' : '▶ Start'}
+                      {activity.start_time ? '▶️ Working...' : '▶ Start'}
                     </button>
                   </div>
                 ))
@@ -659,122 +663,91 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
             </div>
           </div>
 
-          {isBacklogOpen && (
-            <div className="border-inherit border-t p-4 space-y-4">
-              {nextModuleActivities.length === 0 ? (
-                <p className={`text-xs ${c.mutedText} text-center py-4`}>No backlog items found.</p>
-              ) : backlogGroupBy === 'date' ? (
-                <div className="gap-4 grid grid-cols-1 lg:grid-cols-3 md:grid-cols-2">
-                  {backlogGroupedByDate.map((group) => (
-                    <div 
-                      key={group.groupKey} 
-                      onDragOver={handleDragOver}
-                      onDrop={(e) => handleDropOnBacklog(e, group.groupKey)}
-                      className={`rounded-xl border ${c.moduleBorder} ${c.workgroupBg} p-4 shadow-2xs flex flex-col justify-between transition-colors`}
-                    >
-                      <div className="border-b border-inherit flex items-center justify-between mb-3 pb-3">
-                        <div className="flex gap-2 items-center min-w-0">
-                          <Calendar className={`h-4 w-4 shrink-0 ${c.moduleIcon}`} />
-                          <h4 className={`text-xs font-bold uppercase tracking-wider ${c.moduleText} truncate`}>
-                            {group.displayName}
-                          </h4>
-                        </div>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${c.cardBg} border ${c.moduleBorder} ${c.mutedText} shrink-0`}>
-                          {group.activities.length}
-                        </span>
-                      </div>
-
-                      <div className="flex-1 min-h-[60px] space-y-2">
-                        {group.activities.length === 0 ? (
-                          <div className={`text-[11px] ${c.mutedText} text-center py-3 border border-dashed rounded-lg ${c.divider}`}>
-                            Drop items here to schedule
+         {isBacklogOpen && (
+              <div className="border-inherit border-t p-3 space-y-4">
+                {nextModuleActivities.length === 0 ? (
+                  <p className={`text-xs ${c.mutedText} text-center py-4`}>No backlog items found.</p>
+                ) : backlogGroupBy === 'date' ? (
+                  /* Date-grouped view (5 side-by-side columns) */
+                  <div className="gap-3 grid grid-cols-1 lg:grid-cols-5 md:grid-cols-3 sm:grid-cols-2">
+                    {backlogGroupedByDate.map((group) => (
+                      <div 
+                        key={group.groupKey} 
+                        onDragOver={handleDragOver}
+                        onDrop={(e) => handleDropOnBacklog(e, group.groupKey)}
+                        className={`rounded-xl border ${c.moduleBorder} ${c.workgroupBg} p-2.5 shadow-2xs flex flex-col justify-between transition-colors`}
+                      >
+                        <div className="border-b border-inherit flex items-center justify-between mb-2 pb-2">
+                          <div className="flex gap-1.5 items-center min-w-0">
+                            <Calendar className={`h-3.5 w-3.5 shrink-0 ${c.moduleIcon}`} />
+                            <h4 className={`text-[10px] font-bold uppercase tracking-wider ${c.moduleText} truncate`}>
+                              {group.displayName}
+                            </h4>
                           </div>
-                        ) : (
-                          group.activities.map((activity) => (
+                          <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${c.cardBg} border ${c.moduleBorder} ${c.mutedText} shrink-0`}>
+                            {group.activities.length}
+                          </span>
+                        </div>
+
+                        <div className="flex-1 min-h-[60px] space-y-2">
+                          {group.activities.map((activity) => (
                             <div
                               key={activity.id}
                               draggable
                               onDragStart={(e) => handleDragStart(e, activity, 'backlog')}
                               onClick={() => openActivityModal(activity)}
-                              className={`p-2.5 rounded-lg border ${c.divider} ${c.cardBg} cursor-pointer hover:border-blue-400 transition-all flex flex-col gap-1 shadow-2xs`}
+                              className={`rounded-lg border ${c.divider} ${c.cardBg} p-2 space-y-1 shadow-2xs cursor-pointer hover:border-blue-400 transition-all`}
                             >
-                              <span className={`text-xs font-bold ${c.activityText} leading-snug`}>
-                                {activity.title}
-                              </span>
-                              
-                              <div className="border-black/5 border-t dark:border-white/5 flex items-center justify-between pt-1 text-[11px]">
-                                <span className={`text-[10px] font-semibold ${c.statText}`}>
-                                  {activity.course_name || activity.course?.name || 'General'}
-                                </span>
-
-                                {(activity.module_name || activity.module?.name) && (
-                                  <div className={`flex items-center gap-1 ${c.mutedText} truncate max-w-[140px]`}>
-                                    <FileText className="h-3 shrink-0 w-3" />
-                                    <span className="truncate">{activity.module_name || activity.module?.name}</span>
-                                  </div>
-                                )}
-                              </div>
+                              <div className={`text-[11px] font-bold ${c.activityText} truncate`}>{activity.title}</div>
+                              <p className={`text-[9px] ${c.statText} truncate`}>{activity.course_name || 'General'}</p>
                             </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="gap-4 grid grid-cols-1 lg:grid-cols-3 md:grid-cols-2">
-                  {backlogGroupedByCourse.map((group) => (
-                    <div 
-                      key={group.groupKey} 
-                      className={`rounded-xl border ${c.moduleBorder} ${c.workgroupBg} p-4 shadow-2xs flex flex-col justify-between`}
-                    >
-                      <div className="border-b border-inherit flex items-center justify-between mb-3 pb-3">
-                        <div className="flex gap-2 items-center min-w-0">
-                          <BookOpen className={`h-4 w-4 shrink-0 ${c.moduleIcon}`} />
-                          <h4 className={`text-xs font-bold uppercase tracking-wider ${c.moduleText} truncate`}>
-                            {group.groupKey}
-                          </h4>
+                          ))}
                         </div>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${c.cardBg} border ${c.moduleBorder} ${c.mutedText} shrink-0`}>
-                          {group.activities.length}
-                        </span>
                       </div>
-
-                      <div className="flex-1 space-y-2">
-                        {group.activities.map((activity) => (
-                          <div
-                            key={activity.id}
-                            draggable
-                            onDragStart={(e) => handleDragStart(e, activity, 'backlog')}
-                            onClick={() => openActivityModal(activity)}
-                            className={`p-2.5 rounded-lg border ${c.divider} ${c.cardBg} cursor-pointer hover:border-blue-400 transition-all flex flex-col gap-1 shadow-2xs`}
-                          >
-                            <span className={`text-xs font-bold ${c.activityText} leading-snug`}>
-                              {activity.title}
-                            </span>
-                            
-                            <div className="border-black/5 border-t dark:border-white/5 flex items-center justify-between pt-1 text-[11px]">
-                              <div className="dark:text-blue-400 flex font-semibold gap-1 items-center text-blue-600">
-                                <Calendar className="h-3 w-3" />
-                                <span>{activity.plan_date ? formatDateShort(getDateStr(activity.plan_date)) : 'No date'}</span>
-                              </div>
-
-                              {(activity.module_name || activity.module?.name) && (
-                                <div className={`flex items-center gap-1 ${c.mutedText} truncate max-w-[140px]`}>
-                                  <FileText className="h-3 shrink-0 w-3" />
-                                  <span className="truncate">{activity.module_name || activity.module?.name}</span>
-                                </div>
-                              )}
-                            </div>
+                    ))}
+                  </div>
+                ) : (
+                  /* Course-grouped view (Horizontal scrolling side-by-side columns for any number of courses) */
+                  <div className="flex gap-3 overflow-x-auto pb-2">
+                    {backlogGroupedByCourse.map((group) => (
+                      <div
+                        key={group.groupKey}
+                        className={`w-72 shrink-0 rounded-xl border ${c.moduleBorder} ${c.workgroupBg} p-2.5 shadow-2xs flex flex-col justify-between transition-colors`}
+                      >
+                        <div className="border-b border-inherit flex items-center justify-between mb-2 pb-2">
+                          <div className="flex gap-1.5 items-center min-w-0">
+                            <BookOpen className={`h-3.5 w-3.5 shrink-0 ${c.moduleIcon}`} />
+                            <h4 className={`text-[10px] font-bold uppercase tracking-wider ${c.moduleText} truncate`} title={group.groupKey}>
+                              {group.groupKey}
+                            </h4>
                           </div>
-                        ))}
+                          <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${c.cardBg} border ${c.moduleBorder} ${c.mutedText} shrink-0`}>
+                            {group.activities.length}
+                          </span>
+                        </div>
+
+                        <div className="flex-1 min-h-[60px] space-y-2">
+                          {group.activities.map((activity) => (
+                            <div
+                              key={activity.id}
+                              draggable
+                              onDragStart={(e) => handleDragStart(e, activity, 'backlog')}
+                              onClick={() => openActivityModal(activity)}
+                              className={`rounded-lg border ${c.divider} ${c.cardBg} p-2 space-y-1 shadow-2xs cursor-pointer hover:border-blue-400 transition-all`}
+                            >
+                              <div className={`text-[11px] font-bold ${c.activityText} truncate`}>{activity.title}</div>
+                              <p className={`text-[9px] ${c.statText} truncate`}>
+                                {activity.plan_date ? formatDateShort(activity.plan_date) : 'Unscheduled'}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+                    ))}
+                  </div>
+                )}
+              </div>
+            )} 
         </div>
 
       </div>
@@ -783,7 +756,6 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
       {isModalOpen && (
         <ActivityDetailModal
           activity={selectedActivity}
-          courses={courses}
           onClose={closeActivityModal}
           onUpdate={handleActivityRefresh}
         />

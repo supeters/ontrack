@@ -51,11 +51,27 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
   const getCurrentWeekIndex = (weekModulesList: any[], date: Date) => {
     const targetDate = formatDateLocal(date);
     let selectedIndex = -1;
+    let closestDate = '';
 
     weekModulesList.forEach((module: any, index: number) => {
-      if (module.activity_type !== 'module' || !module.plan_date) return;
+      if (module.activity_type !== 'module') return;
+
+      // If module has no plan_date, it should show when date is before any dated modules
+      if (!module.plan_date) {
+        // Only select if no dated module has been found yet
+        if (selectedIndex === -1) {
+          selectedIndex = index;
+        }
+        return;
+      }
+
+      // Find the most recent module on or before the target date
       if (module.plan_date <= targetDate) {
-        selectedIndex = index;
+        // Pick this module if it's closer to target than previous selection
+        if (!closestDate || module.plan_date >= closestDate) {
+          closestDate = module.plan_date;
+          selectedIndex = index;
+        }
       }
     });
 
@@ -65,8 +81,26 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
   const selectWeekModule = (weekModulesList: any[], index: number) => {
     const normalizedIndex = Math.min(Math.max(index, 0), Math.max(0, weekModulesList.length - 1));
     setCurrentWeekIndex(normalizedIndex);
-    if (weekModulesList[normalizedIndex]?.id) {
-      setExpandedModules(new Set([weekModulesList[normalizedIndex].id]));
+
+    const selectedModule = weekModulesList[normalizedIndex];
+    if (selectedModule?.id) {
+      // Find all modules with the same plan_date (for grouping Week 0 modules)
+      const sameDateModules = weekModulesList
+        .filter(m => m.plan_date && m.plan_date === selectedModule.plan_date);
+
+      const sameDateModuleIds = sameDateModules.map(m => m.id);
+
+      // Expand all modules with the same date
+      setExpandedModules(new Set(sameDateModuleIds.length > 0 ? sameDateModuleIds : [selectedModule.id]));
+
+      // Also auto-expand all workgroups in these modules
+      const workgroupIds: number[] = [];
+      sameDateModules.forEach(module => {
+        module.workgroups?.forEach((wg: any) => {
+          if (wg.id) workgroupIds.push(wg.id);
+        });
+      });
+      setExpandedWorkgroups(new Set(workgroupIds));
     }
   };
 
@@ -285,7 +319,13 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
 
   // Current module to display
   const currentModule = viewMode === 'week' ? weekModules[currentWeekIndex] : null;
-  const displayModules = viewMode === 'all' ? modules : (currentModule ? [currentModule] : []);
+
+  // In week view, show all modules with the same plan_date (for grouped Week 0)
+  const displayModules = viewMode === 'all'
+    ? modules
+    : (currentModule
+        ? weekModules.filter(m => m.plan_date === currentModule.plan_date)
+        : []);
 
   return (
     <div className={`flex h-full ${c.bg}`}>
@@ -358,7 +398,7 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
 
             <div className="text-center">
               <div className={`text-lg font-semibold ${c.moduleText}`}>
-                Week {currentWeekIndex + 1}
+                {currentModule?.title || `Week ${currentWeekIndex + 1}`}
               </div>
               {currentModule?.plan_date && (
                 <div className={`text-sm ${c.mutedText}`}>
@@ -582,12 +622,12 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
               </div>
             ))}
 
-            {!showMoreAssignments && allActivities.filter((act: any) => act.is_action && !act.is_completed && act.plan_date).length > 5 && (
+            {allActivities.filter((act: any) => act.is_action && !act.is_completed && act.plan_date).length > 5 && (
               <button
-                onClick={() => setShowMoreAssignments(true)}
+                onClick={() => setShowMoreAssignments(!showMoreAssignments)}
                 className={`w-full py-2 text-sm ${c.mutedText} hover:${c.moduleText} transition-colors`}
               >
-                Show more...
+                {showMoreAssignments ? 'Show less...' : 'Show more...'}
               </button>
             )}
           </div>

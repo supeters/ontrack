@@ -1,0 +1,517 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useTheme } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  BookOpen, RefreshCw, CheckCircle, AlertCircle, Link as LinkIcon
+} from 'lucide-react';
+
+interface CanvasAccount {
+  id: number;
+  kid_id: number;
+  lms_url: string;
+  name: string;
+  is_active: boolean;
+  api_token: string | null;
+  last_sync: string | null;
+}
+
+interface CanvasCourse {
+  lms_id: string;
+  name: string;
+  course_code: string;
+  workflow_state: string;
+  mapped_course_id: number | null;
+  mapped_course_name: string | null;
+}
+
+interface LocalCourse {
+  id: number;
+  course_name: string;
+  lms_course_id: string | null;
+  work_days: string | null;
+  class_days: string | null;
+  exclusion_patterns: string | null;
+}
+
+interface CanvasSettingsTabProps {
+  selectedSchoolYear: string;
+}
+
+export default function CanvasSettingsTab({ selectedSchoolYear }: CanvasSettingsTabProps) {
+  const { theme } = useTheme();
+  const { selectedKid } = useAuth();
+  const c = theme.colors;
+
+  const [canvasAccounts, setCanvasAccounts] = useState<CanvasAccount[]>([]);
+  const [canvasCourses, setCanvasCourses] = useState<CanvasCourse[]>([]);
+  const [localCourses, setLocalCourses] = useState<LocalCourse[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  // Sync state
+  const [selectedCourses, setSelectedCourses] = useState<Set<number>>(new Set());
+  const [syncing, setSyncing] = useState(false);
+  const [syncOutput, setSyncOutput] = useState<string>('');
+
+  // Editing state for course fields
+  const [editingCourse, setEditingCourse] = useState<number | null>(null);
+  const [editValues, setEditValues] = useState<{
+    work_days: string;
+    class_days: string;
+    exclusion_patterns: string;
+  }>({ work_days: '', class_days: '', exclusion_patterns: '' });
+
+  useEffect(() => {
+    loadCanvasAccounts();
+    loadLocalCourses();
+  }, [selectedKid, selectedSchoolYear]);
+
+  useEffect(() => {
+    if (canvasAccounts.length > 0 && !selectedAccountId) {
+      setSelectedAccountId(canvasAccounts[0].id);
+    }
+  }, [canvasAccounts]);
+
+  const loadCanvasAccounts = async () => {
+    if (!selectedKid) return;
+    try {
+      const res = await fetch(`/api/canvas/accounts?kidId=${selectedKid.id}`);
+      const data = await res.json();
+      setCanvasAccounts(data || []);
+    } catch (err) {
+      console.error('Error loading Canvas accounts:', err);
+    }
+  };
+
+  const loadLocalCourses = async () => {
+    if (!selectedKid) return;
+    try {
+      const res = await fetch(`/api/courses?kidId=${selectedKid.id}&schoolYear=${selectedSchoolYear}`);
+      const data = await res.json();
+      setLocalCourses(data || []);
+    } catch (err) {
+      console.error('Error loading local courses:', err);
+    }
+  };
+
+  const loadCanvasCourses = async () => {
+    if (!selectedAccountId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/canvas/list-courses?accountId=${selectedAccountId}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setCanvasCourses(data.courses || []);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const matchCourse = async (canvasLmsId: string, localCourseId: number) => {
+    try {
+      const res = await fetch('/api/canvas/match-course', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lmsId: canvasLmsId,
+          localCourseId: localCourseId
+        })
+      });
+
+      if (!res.ok) throw new Error('Failed to match course');
+
+      setSuccess('Course matched successfully!');
+      setTimeout(() => setSuccess(null), 3000);
+
+      // Reload both lists
+      await loadCanvasCourses();
+      await loadLocalCourses();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const toggleCourseSelection = (courseId: number) => {
+    const newSelection = new Set(selectedCourses);
+    if (newSelection.has(courseId)) {
+      newSelection.delete(courseId);
+    } else {
+      newSelection.add(courseId);
+    }
+    setSelectedCourses(newSelection);
+  };
+
+  const syncSelectedCourses = async (mode: 'incremental' | 'all' = 'incremental') => {
+    if (selectedCourses.size === 0) {
+      setError('Please select at least one course to sync');
+      return;
+    }
+
+    setSyncing(true);
+    setSyncOutput('');
+    setError(null);
+
+    try {
+      const res = await fetch('/api/canvas/sync-modules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          courseIds: Array.from(selectedCourses),
+          mode: mode
+        })
+      });
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === 'log' || data.type === 'error') {
+                setSyncOutput(prev => prev + data.message + '\n');
+              }
+            }
+          }
+        }
+      }
+
+      setSuccess(`${mode === 'all' ? 'Full' : 'Incremental'} sync completed!`);
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const calculatePlanDates = async () => {
+    if (selectedCourses.size === 0) {
+      setError('Please select at least one course');
+      return;
+    }
+
+    setSyncing(true);
+    setSyncOutput('');
+    setError(null);
+
+    try {
+      const res = await fetch('/api/canvas/calculate-plan-dates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          courseIds: Array.from(selectedCourses)
+        })
+      });
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === 'log' || data.type === 'error') {
+                setSyncOutput(prev => prev + data.message + '\n');
+              }
+            }
+          }
+        }
+      }
+
+      setSuccess('Plan dates calculated!');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const startEditing = (course: LocalCourse) => {
+    setEditingCourse(course.id);
+    setEditValues({
+      work_days: course.work_days || '',
+      class_days: course.class_days || '',
+      exclusion_patterns: course.exclusion_patterns || ''
+    });
+  };
+
+  const saveEditValues = async (courseId: number) => {
+    try {
+      const res = await fetch('/api/canvas/update-course-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          courseId,
+          ...editValues
+        })
+      });
+
+      if (!res.ok) throw new Error('Failed to update settings');
+
+      setSuccess('Settings updated!');
+      setTimeout(() => setSuccess(null), 3000);
+      setEditingCourse(null);
+      await loadLocalCourses();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const getMappedCourses = () => {
+    return localCourses.filter(c => c.lms_course_id);
+  };
+
+  const selectedAccount = canvasAccounts.find(a => a.id === selectedAccountId);
+
+  return (
+    <div className="space-y-6">
+      {/* Account Selection */}
+      <div className={`${c.card} p-6 rounded-xl`}>
+        <h3 className={`text-lg font-bold ${c.text} mb-4 flex items-center gap-2`}>
+          <BookOpen className="h-5 w-5" />
+          Canvas LMS Accounts
+        </h3>
+
+        {canvasAccounts.length === 0 ? (
+          <p className={c.mutedText}>No Canvas accounts configured</p>
+        ) : (
+          <select
+            value={selectedAccountId || ''}
+            onChange={(e) => setSelectedAccountId(parseInt(e.target.value))}
+            className={`w-full ${c.input} px-4 py-2 rounded-lg`}
+          >
+            {canvasAccounts.map(account => (
+              <option key={account.id} value={account.id}>
+                {account.name} ({account.lms_url})
+              </option>
+            ))}
+          </select>
+        )}
+
+        {selectedAccount && (
+          <div className="mt-4">
+            <button
+              onClick={loadCanvasCourses}
+              disabled={loading}
+              className={`${c.primary} px-4 py-2 rounded-lg flex items-center gap-2`}
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              {loading ? 'Loading...' : 'Load Canvas Courses'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Messages */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl flex items-center gap-2">
+          <AlertCircle className="h-5 w-5" />
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="bg-green-50 border border-green-200 text-green-700 p-4 rounded-xl flex items-center gap-2">
+          <CheckCircle className="h-5 w-5" />
+          {success}
+        </div>
+      )}
+
+      {/* Canvas Courses List */}
+      {canvasCourses.length > 0 && (
+        <div className={`${c.card} p-6 rounded-xl`}>
+          <h3 className={`text-lg font-bold ${c.text} mb-4`}>
+            Canvas Courses - Map to Local Courses
+          </h3>
+
+          <div className="space-y-2">
+            {canvasCourses.map(course => (
+              <div key={course.lms_id} className={`${c.border} p-4 rounded-lg`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold">{course.name}</p>
+                    <p className={`text-sm ${c.mutedText}`}>{course.course_code}</p>
+                    {course.mapped_course_name && (
+                      <p className="text-sm text-green-600 flex items-center gap-1 mt-1">
+                        <LinkIcon className="h-3 w-3" />
+                        Mapped to: {course.mapped_course_name}
+                      </p>
+                    )}
+                  </div>
+
+                  {!course.mapped_course_id && (
+                    <select
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          matchCourse(course.lms_id, parseInt(e.target.value));
+                        }
+                      }}
+                      className={`${c.input} px-3 py-1 rounded text-sm`}
+                      defaultValue=""
+                    >
+                      <option value="">Select local course...</option>
+                      {localCourses.map(local => (
+                        <option key={local.id} value={local.id}>
+                          {local.course_name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Mapped Courses - Sync Section */}
+      {getMappedCourses().length > 0 && (
+        <div className={`${c.card} p-6 rounded-xl`}>
+          <h3 className={`text-lg font-bold ${c.text} mb-4`}>
+            Synced Courses ({getMappedCourses().length})
+          </h3>
+
+          <div className="mb-4 flex gap-2">
+            <button
+              onClick={() => syncSelectedCourses('incremental')}
+              disabled={syncing || selectedCourses.size === 0}
+              className={`${c.primary} px-4 py-2 rounded-lg`}
+            >
+              Incremental Sync ({selectedCourses.size})
+            </button>
+            <button
+              onClick={() => syncSelectedCourses('all')}
+              disabled={syncing || selectedCourses.size === 0}
+              className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700"
+            >
+              Full Sync ({selectedCourses.size})
+            </button>
+            <button
+              onClick={calculatePlanDates}
+              disabled={syncing || selectedCourses.size === 0}
+              className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700"
+            >
+              Recalc Plan Dates ({selectedCourses.size})
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {getMappedCourses().map(course => {
+              const isEditing = editingCourse === course.id;
+              return (
+                <div key={course.id} className={`${c.border} p-4 rounded-lg`}>
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedCourses.has(course.id)}
+                      onChange={() => toggleCourseSelection(course.id)}
+                      className="mt-1"
+                    />
+                    <div className="flex-1">
+                      <p className="font-semibold">{course.course_name}</p>
+                      {isEditing ? (
+                        <div className="mt-2 space-y-2">
+                          <div className="grid grid-cols-3 gap-2">
+                            <div>
+                              <label className="text-xs text-gray-600">Work Days</label>
+                              <input
+                                type="text"
+                                value={editValues.work_days}
+                                onChange={(e) => setEditValues({...editValues, work_days: e.target.value})}
+                                placeholder="12345"
+                                className={`${c.input} px-2 py-1 rounded text-sm w-full`}
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-600">Class Days</label>
+                              <input
+                                type="text"
+                                value={editValues.class_days}
+                                onChange={(e) => setEditValues({...editValues, class_days: e.target.value})}
+                                placeholder="135"
+                                className={`${c.input} px-2 py-1 rounded text-sm w-full`}
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-600">Exclusion Patterns</label>
+                              <input
+                                type="text"
+                                value={editValues.exclusion_patterns}
+                                onChange={(e) => setEditValues({...editValues, exclusion_patterns: e.target.value})}
+                                placeholder="intro,warm-up"
+                                className={`${c.input} px-2 py-1 rounded text-sm w-full`}
+                              />
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => saveEditValues(course.id)}
+                              className="bg-green-600 text-white px-3 py-1 rounded text-sm"
+                            >
+                              Save
+                            </button>
+                            <button
+                              onClick={() => setEditingCourse(null)}
+                              className="bg-gray-500 text-white px-3 py-1 rounded text-sm"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-1 text-sm text-gray-600 flex gap-4">
+                          <span>Work: {course.work_days || 'Not set'}</span>
+                          <span>Class: {course.class_days || 'Not set'}</span>
+                          {course.exclusion_patterns && (
+                            <span>Exclude: {course.exclusion_patterns}</span>
+                          )}
+                          <button
+                            onClick={() => startEditing(course)}
+                            className="text-blue-600 hover:underline"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Sync Output */}
+          {syncing && (
+            <div className="mt-4 bg-black text-green-400 p-4 rounded-lg font-mono text-sm max-h-96 overflow-y-auto">
+              <pre className="whitespace-pre-wrap">{syncOutput}</pre>
+              <div className="animate-pulse">Syncing...</div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

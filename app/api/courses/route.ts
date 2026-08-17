@@ -2,20 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/lib/supabase/client';
 
 // GET /api/courses?kidId=xxx&schoolYear=2025-26
+// GET /api/courses?schoolId=xxx&schoolYear=2025-26
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const kidId = searchParams.get('kidId');
+  const schoolId = searchParams.get('schoolId');
   const schoolYear = searchParams.get('schoolYear');
 
-  if (!kidId) {
-    return NextResponse.json({ error: 'Missing kidId' }, { status: 400 });
+  if (!kidId && !schoolId) {
+    return NextResponse.json({ error: 'Missing kidId or schoolId' }, { status: 400 });
   }
 
   try {
     const supabase = await getServerClient();
 
-    // Fetch courses with school and calendar info
-    const { data, error } = await supabase
+    // Build query
+    let query = supabase
       .from('courses')
       .select(`
         id,
@@ -24,6 +26,9 @@ export async function GET(request: NextRequest) {
         teacher,
         calendar_id,
         lms_course_id,
+        source_type,
+        school_id,
+        kid_id,
         work_days,
         class_days,
         exclusion_patterns,
@@ -35,9 +40,17 @@ export async function GET(request: NextRequest) {
           school_year_name
         )
       `)
-      .eq('kid_id', parseInt(kidId))
       .eq('is_active', true)
       .order('course_name');
+
+    // Filter by kidId or schoolId
+    if (kidId) {
+      query = query.eq('kid_id', parseInt(kidId));
+    } else if (schoolId) {
+      query = query.eq('school_id', parseInt(schoolId));
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('Error fetching courses:', error);
@@ -74,8 +87,11 @@ export async function GET(request: NextRequest) {
       teacher: course.teacher,
       schoolNickname: course.schools?.nickname || course.schools?.name || 'No school',
       school: course.schools?.name || 'No school',
+      school_id: course.school_id,
+      kid_id: course.kid_id,
       calendar_id: course.calendar_id,
       lms_course_id: course.lms_course_id,
+      source_type: course.source_type,
       work_days: course.work_days,
       class_days: course.class_days,
       exclusion_patterns: course.exclusion_patterns,

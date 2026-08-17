@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
       .select('*')
       .eq('lms_type', 'moodle')
       .eq('kid_id', parseInt(kidId))
-      .order('created_at', { ascending: false });
+      .order('name');
 
     if (error) throw error;
 
@@ -32,48 +32,74 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/moodle/accounts - Add new Moodle account
+// POST /api/moodle/accounts - Add or update Moodle account
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { kid_id, moodle_url, username, password } = body;
+    const { id, kidId, name, lmsUrl, username, password, apiToken, isActive } = body;
 
-    if (!kid_id || !moodle_url || !username || !password) {
+    if (!kidId || !name || !lmsUrl) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
       );
     }
 
-    // TODO: Implement password encryption
-    const encryptedPassword = Buffer.from(password).toString('base64'); // Temporary simple encoding
-
     const supabase = await getServerClient();
 
-    // Insert account
-    const { data: account, error: insertError } = await supabase
-      .from('lms_accounts')
-      .insert({
-        kid_id,
+    if (id) {
+      // Update existing account
+      const updateData: any = {
+        name,
+        lms_url: lmsUrl,
+        is_active: isActive ?? true,
+      };
+
+      if (username) updateData.lms_user_name = username;
+      if (password) {
+        // TODO: Implement proper password encryption
+        updateData.encrypted_password = Buffer.from(password).toString('base64');
+      }
+      if (apiToken !== undefined) updateData.api_token = apiToken || null;
+
+      const { data, error } = await supabase
+        .from('lms_accounts')
+        .update(updateData)
+        .eq('id', id)
+        .eq('kid_id', kidId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return NextResponse.json(data);
+    } else {
+      // Create new account
+      const insertData: any = {
+        kid_id: kidId,
         lms_type: 'moodle',
-        lms_url: moodle_url,
-        lms_user_name: username,
-        encrypted_password: encryptedPassword,
-        name: `Moodle - ${username}`,
-        is_active: false,
-        api_token: null
-      })
-      .select()
-      .single();
+        name,
+        lms_url: lmsUrl,
+        is_active: isActive ?? true,
+        api_token: apiToken || null,
+      };
 
-    if (insertError) throw insertError;
+      if (username) insertData.lms_user_name = username;
+      if (password) {
+        // TODO: Implement proper password encryption
+        insertData.encrypted_password = Buffer.from(password).toString('base64');
+      }
 
-    // Test connection immediately
-    // TODO: Implement actual Moodle token generation
+      const { data, error } = await supabase
+        .from('lms_accounts')
+        .insert(insertData)
+        .select()
+        .single();
 
-    return NextResponse.json({ success: true, account });
+      if (error) throw error;
+      return NextResponse.json(data);
+    }
   } catch (error: any) {
-    console.error('Error adding Moodle account:', error);
+    console.error('Error saving Moodle account:', error);
     return NextResponse.json(
       { error: error.message || String(error) },
       { status: 500 }
@@ -81,14 +107,15 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE /api/moodle/accounts?id=xxx
+// DELETE /api/moodle/accounts?id=xxx&kidId=xxx
 export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
+    const kidId = searchParams.get('kidId');
 
-    if (!id) {
-      return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+    if (!id || !kidId) {
+      return NextResponse.json({ error: 'Missing id or kidId' }, { status: 400 });
     }
 
     const supabase = await getServerClient();
@@ -96,7 +123,8 @@ export async function DELETE(request: NextRequest) {
     const { error } = await supabase
       .from('lms_accounts')
       .delete()
-      .eq('id', parseInt(id));
+      .eq('id', parseInt(id))
+      .eq('kid_id', parseInt(kidId));
 
     if (error) throw error;
 

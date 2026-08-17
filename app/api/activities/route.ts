@@ -55,6 +55,13 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    console.log('🔍 API received PATCH:', {
+      activityId,
+      updates,
+      'updates.start_time': updates.start_time,
+      'has start_time key': 'start_time' in updates
+    });
+
     const supabase = await getServerClient();
 
     // Call PostgreSQL function

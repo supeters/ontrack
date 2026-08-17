@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/lib/supabase/client';
 
-// GET /api/courses/[courseId]/modules?kidId=xxx
+// GET /api/courses/[id]/modules?kidId=xxx
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ courseId: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { searchParams } = new URL(request.url);
   const kidId = searchParams.get('kidId');
-  const { courseId } = await params;
+  const { id: courseId } = await params;
 
   if (!kidId || !courseId) {
     return NextResponse.json(
@@ -39,7 +39,7 @@ export async function GET(
 
     return NextResponse.json(modules);
   } catch (error: any) {
-    console.error('API /api/courses/[courseId]/modules GET error:', error);
+    console.error('API /api/courses/[id]/modules GET error:', error);
     return NextResponse.json(
       { error: error.message || String(error) },
       { status: 500 }

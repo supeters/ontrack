@@ -1,0 +1,113 @@
+-- Safe Sync Activity Update Function
+-- This function updates ONLY LMS-provided fields during sync operations
+-- It preserves user-entered data like is_completed, actual_minutes, is_action_override
+--
+-- Usage:
+--   SELECT safe_sync_activity_update(
+--     activity_id => 123,
+--     sync_data => jsonb_build_object(
+--       'title', 'Assignment 1',
+--       'description', '<p>Do this</p>',
+--       'lms_url', 'https://...',
+--       'is_action_sync', true
+--     )
+--   );
+
+CREATE OR REPLACE FUNCTION safe_sync_activity_update(
+  activity_id integer,
+  sync_data jsonb
+)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  -- LMS-provided fields that CAN be updated by sync
+  allowed_fields text[] := ARRAY[
+    'title',
+    'description',
+    'lms_id',
+    'lms_type',
+    'lms_source',
+    'lms_url',
+    'lms_assignment_id',
+    'lms_synced_at',
+    'resource_url',
+    'position',
+    'is_hidden',
+    'is_action_sync',  -- Sync can update this
+    'item_needs_processing',
+    'estimated_minutes',
+    'plan_date',
+    'items_count',
+    'activity_type',
+    'sub_type',
+    'parent_activity_id',
+    'module_id'
+  ];
+
+  -- User-controlled fields that should NEVER be updated by sync
+  protected_fields text[] := ARRAY[
+    'is_completed',           -- User marks complete
+    'completed_at',           -- User completion date
+    'actual_minutes',         -- User-entered time
+    'is_action_override',     -- User override of actionable status
+    'start_time',             -- User work session
+    'end_time',               -- User work session
+    'minutes_worked',         -- User work tracking
+    'is_pinned',              -- User pin status
+    'is_deleted',             -- User deletion
+    'planning_bucket',        -- User planning
+    'bucket_assigned_date'    -- User planning
+  ];
+
+  field text;
+  update_query text;
+  set_clauses text[] := ARRAY[]::text[];
+BEGIN
+  -- Build SET clauses only for allowed fields that exist in sync_data
+  FOR field IN SELECT unnest(allowed_fields) LOOP
+    IF sync_data ? field THEN
+      -- Add to SET clause, properly handling different data types
+      CASE
+        WHEN field IN ('is_hidden', 'is_action_sync', 'item_needs_processing') THEN
+          set_clauses := array_append(set_clauses, format('%I = %L::boolean', field, sync_data->>field));
+        WHEN field IN ('position', 'items_count', 'estimated_minutes', 'parent_activity_id', 'module_id') THEN
+          set_clauses := array_append(set_clauses, format('%I = %L::integer', field, sync_data->>field));
+        WHEN field IN ('plan_date') THEN
+          set_clauses := array_append(set_clauses, format('%I = %L::date', field, sync_data->>field));
+        WHEN field IN ('lms_synced_at') THEN
+          set_clauses := array_append(set_clauses, format('%I = %L::timestamp', field, sync_data->>field));
+        ELSE
+          -- Text fields
+          set_clauses := array_append(set_clauses, format('%I = %L', field, sync_data->>field));
+      END CASE;
+    END IF;
+  END LOOP;
+
+  -- Only run UPDATE if there are fields to update
+  IF array_length(set_clauses, 1) > 0 THEN
+    -- Always update updated_at
+    set_clauses := array_append(set_clauses, 'updated_at = now()');
+
+    -- Build and execute update query
+    update_query := format(
+      'UPDATE activities SET %s WHERE id = %L',
+      array_to_string(set_clauses, ', '),
+      activity_id
+    );
+
+    EXECUTE update_query;
+
+    RAISE DEBUG 'Updated activity % with % fields', activity_id, array_length(set_clauses, 1);
+  ELSE
+    RAISE DEBUG 'No allowed fields to update for activity %', activity_id;
+  END IF;
+END;
+$$;
+
+-- Grant execute permission
+GRANT EXECUTE ON FUNCTION safe_sync_activity_update TO authenticated;
+GRANT EXECUTE ON FUNCTION safe_sync_activity_update TO service_role;
+
+COMMENT ON FUNCTION safe_sync_activity_update IS
+'Safely updates activity with LMS sync data, preserving user-entered fields like completion status and actual time';
