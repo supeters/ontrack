@@ -23,7 +23,8 @@ export function parseChecklist(description: string): DailyChecklist | null {
   const plainText = description.replace(/<[^>]*>/g, '\n').trim();
 
   // Try "Day X:" pattern first
-  const dayNumberPattern = /Day\s+(\d+)[:\-\s]+((?:(?!Day\s+\d+).)+)/gis;
+  // Replace line 26 in lib/parseChecklist.ts with this:
+  const dayNumberPattern = /Day\s+(\d+)[:\-\s]+((?:(?!Day\s+\d+)[\s\S])+)/gi;
   const dayMatches = [...plainText.matchAll(dayNumberPattern)];
 
   if (dayMatches.length > 0) {
