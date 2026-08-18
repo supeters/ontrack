@@ -42,8 +42,9 @@ export function parseChecklist(description: string): DailyChecklist | null {
   }
 
   // Try weekday pattern: Monday, Tuesday, etc.
-  const weekdayPattern = /(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)[:\-\s]+((?:(?!(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)).)+)/gis;
-  const weekdayMatches = [...plainText.matchAll(weekdayPattern)];
+// Replace line 45 with this:
+const weekdayPattern = /(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)[:\-\s]+((?:(?!(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday))[\s\S])+)/gi;
+const weekdayMatches = [...plainText.matchAll(weekdayPattern)];
 
   if (weekdayMatches.length > 0) {
     const checklist: DailyChecklist = {};
