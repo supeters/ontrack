@@ -2,10 +2,13 @@
 // Each theme provides color classes for different UI elements
 
 export interface ThemeColors {
+  // Generic card & text helpers
+  card: string;
+  text: string;
+
   // Background
   bg: string;
   cardBg: string;
-  card?: string;
 
   // Module header
   moduleHeader: string;
@@ -44,6 +47,9 @@ export interface ThemeColors {
   // Checkbox
   checkboxBorder: string;
   checkboxChecked: string;
+
+  // Catch-all for extra keys
+  [key: string]: string | undefined;
 }
 
 export interface Theme {
@@ -57,6 +63,9 @@ export const themes: Record<string, Theme> = {
     name: 'Ancient Parchment',
     description: 'Classic manuscript warmth',
     colors: {
+      card: 'bg-[#fcfaf7] border border-[#d4c5b0]',
+      text: 'text-[#3d3122]',
+
       bg: 'bg-[#f4efe6]',
       cardBg: 'bg-[#fcfaf7]',
 
@@ -97,6 +106,9 @@ export const themes: Record<string, Theme> = {
     name: 'Terracotta Rose',
     description: 'Warm dusty pink and clay parchment',
     colors: {
+      card: 'bg-[#fdf9f8] border border-[#d8beba]',
+      text: 'text-[#3b2321]',
+
       bg: 'bg-[#f7ecea]',
       cardBg: 'bg-[#fdf9f8]',
 
@@ -137,6 +149,9 @@ export const themes: Record<string, Theme> = {
     name: 'Golden Amber',
     description: 'Warm honey parchment and terracotta accents',
     colors: {
+      card: 'bg-[#fdfbf7] border border-[#d8c3a5]',
+      text: 'text-[#3b2d18]',
+
       bg: 'bg-[#f7f0e6]',
       cardBg: 'bg-[#fdfbf7]',
 
@@ -177,6 +192,9 @@ export const themes: Record<string, Theme> = {
     name: 'Soft Skies',
     description: 'Muted parchment blue with dark accents',
     colors: {
+      card: 'bg-[#f7fafc] border border-[#c2d7e5]',
+      text: 'text-[#1e293b]',
+
       bg: 'bg-[#ebf3f7]',
       cardBg: 'bg-[#f7fafc]',
 
@@ -217,6 +235,9 @@ export const themes: Record<string, Theme> = {
     name: 'Pastel Garden',
     description: 'Earthy warm sage and parchment tones',
     colors: {
+      card: 'bg-[#f8f7f2] border border-[#c7c0ad]',
+      text: 'text-[#2a3328]',
+
       bg: 'bg-[#edebe1]',
       cardBg: 'bg-[#f8f7f2]',
 
@@ -257,6 +278,9 @@ export const themes: Record<string, Theme> = {
     name: 'Soft Wisteria',
     description: 'Warm mauve and soft heather parchment',
     colors: {
+      card: 'bg-[#fcf9fc] border border-[#cebdce]',
+      text: 'text-[#332235]',
+
       bg: 'bg-[#f2ecf3]',
       cardBg: 'bg-[#fcf9fc]',
 
@@ -297,6 +321,9 @@ export const themes: Record<string, Theme> = {
     name: 'Midnight Library',
     description: 'Deep forest green manuscript dark mode',
     colors: {
+      card: 'bg-[#182420] border border-[#2d473e]',
+      text: 'text-[#e2ece8]',
+
       bg: 'bg-[#121a17]',
       cardBg: 'bg-[#182420]',
 
@@ -337,6 +364,9 @@ export const themes: Record<string, Theme> = {
     name: 'Deep Space',
     description: 'Rich dark obsidian and indigo tones',
     colors: {
+      card: 'bg-[#171926] border border-[#2f354f]',
+      text: 'text-[#e1e5f2]',
+
       bg: 'bg-[#0f111a]',
       cardBg: 'bg-[#171926]',
 
