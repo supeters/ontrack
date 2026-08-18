@@ -77,77 +77,83 @@ export function ActiveWorkProvider({ children }: { children: ReactNode }) {
   };
 
   const pauseWork = async (onComplete?: () => void) => {
-    if (!activeWork) return;
+      if (!activeWork) return;
 
-    const elapsed = elapsedMinutes();
+      try {
+        // Calculate elapsed time from the database start_time (not in-memory state)
+        const startTime = new Date(activeWork.activity.start_time);
+        const now = new Date();
+        const elapsed = Math.round((now.getTime() - startTime.getTime()) / 60000); // minutes
 
-    try {
-      // Create a sub-task for this work session
-      await fetch('/api/activities', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          kidId: activeWork.kidId,
-          courseId: activeWork.activity.course_id,
-          title: `Work session - ${new Date().toLocaleTimeString()}`,
-          description: '',
-          activityType: 'task',
-          planDate: formatDateLocal(new Date()),
-          estimatedMinutes: elapsed,
-          actualMinutes: elapsed,
-          isActionable: false,
-          parentActivityId: activeWork.activity.id,
-          isCompleted: true,
-          completedAt: formatTimestampLocal(new Date()),
-        }),
-      });
+        // Create a sub-task for this work session
+        await fetch('/api/activities', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            kidId: activeWork.kidId,
+            courseId: activeWork.activity.course_id,
+            title: `Work session - ${new Date().toLocaleTimeString()}`,
+            description: '',
+            activityType: 'task',
+            planDate: formatDateLocal(new Date()),
+            estimatedMinutes: elapsed,
+            actualMinutes: elapsed,
+            isActionable: false,
+            parentActivityId: activeWork.activity.id,
+            isCompleted: true,
+            completedAt: formatTimestampLocal(new Date()),
+          }),
+        });
 
-      // Clear start_time on parent activity
-      await fetch('/api/activities', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          activityId: activeWork.activity.id,
-          updates: {
-            start_time: null,
-          },
-        }),
-      });
+        // Clear start_time on parent activity
+        await fetch('/api/activities', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            activityId: activeWork.activity.id,
+            updates: {
+              start_time: null,
+            },
+          }),
+        });
 
-      setActiveWork(null);
-      if (onComplete) onComplete();
-    } catch (error) {
-      console.error('Error pausing work:', error);
-    }
-  };
+        setActiveWork(null);
+        if (onComplete) onComplete();
+      } catch (error) {
+        console.error('Error pausing work:', error);
+      }
+    };
 
   const completeWork = async (onComplete?: () => void) => {
-    if (!activeWork) return;
+  if (!activeWork) return;
 
-    const elapsed = elapsedMinutes();
+  try {
+    // Calculate elapsed time from the database start_time (not in-memory state)
+    const startTime = new Date(activeWork.activity.start_time);
+    const now = new Date();
+    const elapsed = Math.round((now.getTime() - startTime.getTime()) / 60000); // minutes
     const currentActualMinutes = activeWork.activity.actual_minutes || 0;
 
-    try {
-      await fetch('/api/activities', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          activityId: activeWork.activity.id,
-          updates: {
-            is_completed: true,
-            completed_at: formatTimestampLocal(new Date()),
-            actual_minutes: currentActualMinutes + elapsed,
-            start_time: null,
-          },
-        }),
-      });
+    await fetch('/api/activities', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        activityId: activeWork.activity.id,
+        updates: {
+          is_completed: true,
+          completed_at: formatTimestampLocal(new Date()),
+          actual_minutes: currentActualMinutes + elapsed,
+          start_time: null,
+        },
+      }),
+    });
 
-      setActiveWork(null);
-      if (onComplete) onComplete();
-    } catch (error) {
-      console.error('Error completing work:', error);
-    }
-  };
+    setActiveWork(null);
+    if (onComplete) onComplete();
+  } catch (error) {
+    console.error('Error completing work:', error);
+  }
+};
 
   return (
     <ActiveWorkContext.Provider value={{ activeWork, startWork, pauseWork, completeWork, elapsedMinutes, restoreActiveWork }}>

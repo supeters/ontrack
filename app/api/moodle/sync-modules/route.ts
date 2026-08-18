@@ -43,8 +43,7 @@ export async function POST(request: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         const syncScriptPath = path.join(process.cwd(), 'scripts', 'sync-course-modules.mjs');
-        const planDatesScriptPath = path.join(process.cwd(), 'scripts', 'calculate-plan-dates.mjs');
-
+        const planDatesScriptPath = path.join(process.cwd(), 'scripts', 'calculate-plan-dates-v2.mjs');
         for (const course of courses) {
           // Step 1: Sync modules from Moodle
           const syncMessage = `\n📚 Syncing modules: ${course.course_name} (ID: ${course.id})\n`;
@@ -84,7 +83,11 @@ export async function POST(request: NextRequest) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ message: planMessage })}\n\n`));
 
           await new Promise<void>((resolve) => {
-            const child = spawn('node', [planDatesScriptPath, '--course', course.id.toString()], {
+            const args = [planDatesScriptPath, '--course', course.id.toString()];
+                if (mode === 'incremental') {
+                  args.push('--incremental');
+                }
+                const child = spawn('node', args, {
               cwd: process.cwd()
             });
 

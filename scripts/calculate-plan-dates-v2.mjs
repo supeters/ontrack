@@ -232,26 +232,37 @@ function applyWorkDayPattern(weekStartDate, workDays, dayNumber) {
 /**
  * Calculate workgroup plan date based on pattern (School ID = 1)
  */
+/**
+ * Calculate workgroup plan date based on pattern and course work_days
+ */
 function calculateWorkgroupPlanDate(weekStartDate, title, workDays) {
   const normalizedTitle = title.toLowerCase();
 
-  // Treat both "End of Week" AND "Next Week Day 1" as End of Week
-  const isEndOfWeek = /end\s+of\s+week/i.test(normalizedTitle);
+  // Offset mappings relative to Sunday (weekStartDate)
+  const workDaysMap = {
+    // 135: Mon (+1), Wed (+3), Fri (+5)
+    '135': { 1: 1, 2: 3, 3: 5, endOfWeek: 5 },
+    // 524: Prev Fri (-2), Tue (+2), Thu (+4)
+    '524': { 1: -2, 2: 2, 3: 4, endOfWeek: 4 }
+  };
+
+  const offsets = workDaysMap[workDays] || workDaysMap['135'];
+
+  // 1. Treat "End of Week" AND "Next Week Day 1" as End of Week (added (the\s+)? check)
+  const isEndOfWeek = /end\s+of\s+(the\s+)?week/i.test(normalizedTitle);
   const isNextWeekDay1 = /next\s+week.*day\s+1/i.test(normalizedTitle);
 
   if (isEndOfWeek || isNextWeekDay1) {
-    const endOfWeekOffset = 5; // e.g., Friday (+5 days)
     return formatDateString(
-      addDaysToDate(weekStartDate.year, weekStartDate.month, weekStartDate.day, endOfWeekOffset)
+      addDaysToDate(weekStartDate.year, weekStartDate.month, weekStartDate.day, offsets.endOfWeek)
     );
   }
 
-  // Standard day offsets (Due Day 1, Due Day 2, etc.)
+  // 2. Parse "Due Day X" (Due Day 1, Due Day 2, etc.)
   const dayMatch = normalizedTitle.match(/due\s+(?:on\s+)?day\s+(\d+)/i);
   if (dayMatch) {
     const dayNum = parseInt(dayMatch[1], 10);
-    const offsetMap = { 1: 1, 2: 3, 3: 5 };
-    const offset = offsetMap[dayNum] ?? 5;
+    const offset = offsets[dayNum] ?? offsets.endOfWeek;
 
     return formatDateString(
       addDaysToDate(weekStartDate.year, weekStartDate.month, weekStartDate.day, offset)

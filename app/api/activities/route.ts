@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
 }
 
 // PATCH /api/activities - Update an activity
+// PATCH /api/activities - Update an activity
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
@@ -55,23 +56,40 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    console.log('🔍 API received PATCH:', {
-      activityId,
-      updates,
-      'updates.start_time': updates.start_time,
-      'has start_time key': 'start_time' in updates
-    });
-
     const supabase = await getServerClient();
 
-    // Call PostgreSQL function
-    const { data, error } = await supabase.rpc('update_activity', {
-      p_activity_id: activityId,
-      p_updates: updates,
+    // Map payload explicitly for safety
+    const payload: Record<string, any> = {
+      description: updates.description,
+      course_id: updates.course_id,
+      plan_date: updates.plan_date,
+      start_time: updates.start_time,
+      end_time: updates.end_time,
+      estimated_minutes: updates.estimated_minutes,
+      actual_minutes: updates.actual_minutes,
+      is_completed: updates.is_completed,
+      completed_at: updates.completed_at,
+      is_action_override: updates.is_action_override,
+      daily_checklist: updates.daily_checklist, // 👈 Explicitly saved
+      updated_at: new Date().toISOString(),
+    };
+
+    // Remove undefined values to prevent overwriting existing data with nulls
+    Object.keys(payload).forEach((key) => {
+      if (payload[key] === undefined) {
+        delete payload[key];
+      }
     });
 
+    const { data, error } = await supabase
+      .from('activities')
+      .update(payload)
+      .eq('id', activityId)
+      .select()
+      .single();
+
     if (error) {
-      console.error('Error from update_activity:', error);
+      console.error('Error updating activity:', error);
       throw error;
     }
 

@@ -1,10 +1,3 @@
--- Safe Sync Upsert Activity Function V2
--- Inserts new activities or updates existing ones during LMS sync
--- Preserves user-entered data while updating LMS-provided fields
--- OPTIMIZATION: Only updates if data actually changed
---
--- Returns detailed stats: inserted, updated, or skipped
-
 CREATE OR REPLACE FUNCTION safe_sync_upsert_activity(
   lookup_key jsonb,
   sync_data jsonb
@@ -44,7 +37,8 @@ BEGIN
     lms_type,
     activity_type,
     parent_activity_id,
-    module_id
+    module_id,
+    daily_checklist -- <-- ADDED
   INTO existing_record
   FROM activities
   WHERE lms_id = lms_id_val
@@ -52,7 +46,7 @@ BEGIN
     AND (lms_source = lms_source_val OR lms_source_val IS NULL);
 
   IF existing_record.id IS NOT NULL THEN
-    -- Activity exists - check if any LMS-provided fields changed
+    -- Activity exists - check if any LMS-provided fields or daily_checklist changed
     has_changes :=
       COALESCE(existing_record.title, '') != COALESCE(sync_data->>'title', '') OR
       COALESCE(existing_record.description, '') != COALESCE(sync_data->>'description', '') OR
@@ -64,7 +58,8 @@ BEGIN
       COALESCE(existing_record.lms_type, '') != COALESCE(sync_data->>'lms_type', '') OR
       COALESCE(existing_record.activity_type, '') != COALESCE(sync_data->>'activity_type', '') OR
       COALESCE(existing_record.parent_activity_id, 0) != COALESCE((sync_data->>'parent_activity_id')::integer, 0) OR
-      COALESCE(existing_record.module_id, 0) != COALESCE((sync_data->>'module_id')::integer, 0);
+      COALESCE(existing_record.module_id, 0) != COALESCE((sync_data->>'module_id')::integer, 0) OR
+      (existing_record.daily_checklist IS DISTINCT FROM (sync_data->'daily_checklist')); -- <-- ADDED JSONB COMPARISON
 
     IF has_changes THEN
       -- Data changed - perform safe update (preserves user fields)
@@ -107,6 +102,7 @@ BEGIN
       parent_activity_id,
       module_id,
       kid_id,
+      daily_checklist, -- <-- ADDED
       lms_synced_at,
       created_at,
       updated_at
@@ -133,6 +129,7 @@ BEGIN
       (sync_data->>'parent_activity_id')::integer,
       (sync_data->>'module_id')::integer,
       (sync_data->>'kid_id')::integer,
+      sync_data->'daily_checklist', -- <-- ADDED
       COALESCE((sync_data->>'lms_synced_at')::timestamp, NOW()),
       NOW(),
       NOW()
@@ -147,10 +144,3 @@ BEGIN
   END IF;
 END;
 $$;
-
--- Grant execute permission
-GRANT EXECUTE ON FUNCTION safe_sync_upsert_activity TO authenticated;
-GRANT EXECUTE ON FUNCTION safe_sync_upsert_activity TO service_role;
-
-COMMENT ON FUNCTION safe_sync_upsert_activity IS
-'Upserts activity from LMS sync - inserts if new, updates if changed, skips if unchanged (preserving user data)';

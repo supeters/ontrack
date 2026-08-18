@@ -15,7 +15,7 @@ import {
   Play,
   Zap
 } from 'lucide-react';
-import { formatDateLocal, getDateStr, parseLocalTimestamp } from '@/lib/datetime';
+import { formatDateLocal, formatTimestampLocal, getDateStr, parseLocalTimestamp } from '@/lib/datetime';
 import { parseChecklist, type DailyChecklist } from '@/lib/parseChecklist';
 
 interface Course {
@@ -40,6 +40,7 @@ interface Activity {
   course_id?: number;
   is_action?: boolean;
   start_time?: string;
+  end_time?: string;
   daily_checklist?: any;
   kid_id?: number;
 }
@@ -53,6 +54,23 @@ interface ActivityDetailModalProps {
   onLaunchFocus?: (activity: Activity) => void;
 }
 
+function getDisplayMinutes(activity: any): number | null {
+  if (activity.actual_minutes !== null && activity.actual_minutes !== undefined) {
+    return activity.actual_minutes;
+  }
+
+  if (activity.start_time && activity.end_time) {
+    const { date: start } = parseLocalTimestamp(activity.start_time);
+    const { date: end } = parseLocalTimestamp(activity.end_time);
+
+    if (start && end) {
+      return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+    }
+  }
+
+  return null;
+}
+
 export default function ActivityDetailModal({
   activity,
   courses: coursesProp = [],
@@ -61,7 +79,7 @@ export default function ActivityDetailModal({
   onUpdate,
   onLaunchFocus,
 }: ActivityDetailModalProps) {
-  const [editedActivity, setEditedActivity] = useState(activity);
+  const [editedActivity, setEditedActivity] = useState<Activity>(activity);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'details' | 'checklist' | 'tasks'>('details');
   const [hasSelectedText, setHasSelectedText] = useState(false);
@@ -78,10 +96,10 @@ export default function ActivityDetailModal({
   const [hasChanges, setHasChanges] = useState(false);
   const [isCompleted, setIsCompleted] = useState(activity.is_completed || false);
   const [checklist, setChecklist] = useState<DailyChecklist | null>(null);
-  const [actualMinutes, setActualMinutes] = useState(activity.actual_minutes || activity.estimated_minutes || 0);
+  const [actualMinutes, setActualMinutes] = useState<number | null>(getDisplayMinutes(activity));
   const [completedAt, setCompletedAt] = useState(() => {
     if (activity.completed_at) {
-      return getDateStr(activity.completed_at); // Extract just the date part YYYY-MM-DD
+      return getDateStr(activity.completed_at);
     }
     return activity.plan_date || formatDateLocal(new Date());
   });
@@ -89,7 +107,6 @@ export default function ActivityDetailModal({
 
   const actualMinutesRef = useRef<HTMLInputElement>(null);
 
-  // Fetch courses if not provided
   useEffect(() => {
     const loadCourses = async () => {
       if (coursesProp.length > 0 || !activity.kid_id) return;
@@ -116,9 +133,8 @@ export default function ActivityDetailModal({
     setIsActionable(activity.is_action ?? false);
     setEditedActivity(activity);
     setIsCompleted(activity.is_completed || false);
-    setActualMinutes(activity.actual_minutes || activity.estimated_minutes || 0);
-
-    // Parse or load checklist
+    setActualMinutes(getDisplayMinutes(activity));
+    
     if (activity.daily_checklist) {
       setChecklist(activity.daily_checklist);
     } else if (activity.description) {
@@ -128,7 +144,6 @@ export default function ActivityDetailModal({
       }
     }
 
-    // Format completed_at to just date (YYYY-MM-DD)
     if (activity.completed_at) {
       setCompletedAt(getDateStr(activity.completed_at));
     } else {
@@ -163,32 +178,19 @@ export default function ActivityDetailModal({
   const saveChanges = async () => {
     setSaving(true);
     try {
-      // Build updates object
       const updates: any = {
         description: editedActivity.description,
         course_id: editedActivity.course_id,
-        plan_date: editedActivity.plan_date,
-        start_time: editedActivity.start_time,
-        estimated_minutes: editedActivity.estimated_minutes,
-        actual_minutes: actualMinutes,
+        plan_date: editedActivity.plan_date || null,
+        start_time: isCompleted ? (editedActivity.start_time || null) : null,
+        end_time: isCompleted ? (editedActivity.end_time || null) : null,
+        estimated_minutes: editedActivity.estimated_minutes || null,
+        actual_minutes: isCompleted ? actualMinutes : null,
         is_completed: isCompleted,
         completed_at: isCompleted ? (completedAt || formatDateLocal(new Date())) : null,
         is_action_override: isActionable,
+        daily_checklist: checklist,
       };
-
-      console.log('💾 Saving activity:', {
-        activityId: activity.id,
-        'editedActivity.start_time': editedActivity.start_time,
-        'updates.start_time': updates.start_time,
-        isCompleted,
-        'activity.is_completed': activity.is_completed
-      });
-
-      // Clear start_time when marking complete or incomplete
-      if (isCompleted || (activity.is_completed && !isCompleted)) {
-        updates.start_time = null;
-        console.log('✅ Clearing start_time due to completion status change');
-      }
 
       await fetch('/api/activities', {
         method: 'PATCH',
@@ -236,48 +238,43 @@ export default function ActivityDetailModal({
 
   const toggleCompletionNow = async () => {
     const nextCompleted = !isCompleted;
-    const nextCompletedAt = nextCompleted
-      ? completedAt || editedActivity.plan_date || formatDateLocal(new Date())
-      : '';
+    const now = new Date();
 
-    console.log('🔵 Toggle completion:', {
-      nextCompleted,
-      'editedActivity.start_time': editedActivity.start_time,
-      'activity.start_time': activity.start_time
-    });
-
-    // Calculate actual minutes from start_time if it exists
-    // Check both editedActivity and activity prop (in case modal was open when start was clicked)
     const startTime = editedActivity.start_time || activity.start_time;
     let calculatedActualMinutes = actualMinutes;
-    if (nextCompleted && startTime) {
-      const { date: startDate } = parseLocalTimestamp(startTime);
-      console.log('🔍 Calculating actual minutes:', {
-        start_time: editedActivity.start_time,
-        startDate,
-        currentTime: new Date(),
-        existingActualMinutes: activity.actual_minutes
-      });
-      if (startDate) {
-        const elapsedMs = new Date().getTime() - startDate.getTime();
-        const elapsedMinutes = Math.round(elapsedMs / 60000);
-        // Just use elapsed time, don't add to existing actual_minutes
-        // (The existing actual_minutes field is for user to edit manually)
-        calculatedActualMinutes = elapsedMinutes;
-        console.log('✅ Calculated:', {
-          elapsedMs,
-          elapsedMinutes,
-          finalActualMinutes: calculatedActualMinutes
-        });
-        setActualMinutes(calculatedActualMinutes);
+
+    if (nextCompleted) {
+      if (startTime) {
+        const { date: startDate } = parseLocalTimestamp(startTime);
+        if (startDate) {
+          const elapsedMs = now.getTime() - startDate.getTime();
+          calculatedActualMinutes = Math.max(0, Math.round(elapsedMs / 60000));
+          setActualMinutes(calculatedActualMinutes);
+        }
       }
+
+      const activeCompletedDate = completedAt || editedActivity.plan_date || formatDateLocal(now);
+      setCompletedAt(activeCompletedDate);
+
+      setEditedActivity((prev) => ({
+        ...prev,
+        end_time: formatTimestampLocal(now),
+        actual_minutes: calculatedActualMinutes ?? undefined,
+      }));
+    } else {
+      setCompletedAt('');
+      setActualMinutes(null);
+      setEditedActivity((prev) => ({
+        ...prev,
+        start_time: undefined,
+        end_time: undefined,
+        actual_minutes: undefined,
+      }));
     }
 
     setIsCompleted(nextCompleted);
-    setCompletedAt(nextCompletedAt);
     setHasChanges(true);
 
-    // Focus actual minutes field when marking complete
     if (nextCompleted) {
       setTimeout(() => {
         actualMinutesRef.current?.focus();
@@ -452,7 +449,7 @@ export default function ActivityDetailModal({
                       </label>
                       <select
                         value={editedActivity.course_id || ''}
-                        onChange={(e) => handleFieldChange('course_id', Number(e.target.value) || null)}
+                        onChange={(e) => handleFieldChange('course_id', Number(e.target.value) || undefined)}
                         className="bg-white border border-blue-200 focus:ring-2 focus:ring-blue-500 font-semibold outline-none px-3 py-2 rounded-lg text-gray-900 text-sm w-full"
                       >
                         <option value="">No Course Selected</option>
@@ -494,69 +491,73 @@ export default function ActivityDetailModal({
                   </div>
                 </div>
 
-                <div className="bg-gray-50/50 border border-gray-100 p-4 rounded-xl space-y-3">
-                  {/* Planning Section */}
-                  <div className="flex font-bold gap-1.5 items-center text-[11px] text-gray-400 tracking-wider uppercase">
-                    <Calendar className="h-3.5 text-blue-500 w-3.5" />
-                    Planning
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <label className="block font-medium mb-1 text-gray-600 text-xs">Plan Date</label>
-                      <input
-                        type="date"
-                        value={editedActivity.plan_date || ''}
-                        onChange={(e) => handleFieldChange('plan_date', e.target.value)}
-                        className="bg-white border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none px-2.5 py-1.5 rounded-lg text-xs w-full"
-                      />
+                <div className="bg-gray-50/50 border border-gray-100 p-4 rounded-xl space-y-4">
+                  <div className="space-y-2">
+                    <div className="flex font-bold gap-1.5 items-center text-[11px] text-gray-400 tracking-wider uppercase">
+                      <Calendar className="h-3.5 text-blue-500 w-3.5" />
+                      Planning
                     </div>
-                    <div>
-                      <label className="block font-medium mb-1 text-gray-600 text-xs">Start Time</label>
-                      <div className="flex gap-1">
-                        <input
-                          type="time"
-                          value={editedActivity.start_time ? new Date(editedActivity.start_time).toTimeString().substring(0, 5) : ''}
-                          onChange={(e) => {
-                            if (e.target.value && editedActivity.plan_date) {
-                              const dateTime = `${editedActivity.plan_date}T${e.target.value}:00`;
-                              handleFieldChange('start_time', dateTime);
-                            } else {
-                              handleFieldChange('start_time', null);
+
+                    <div className="gap-3 grid grid-cols-2">
+                      <div>
+                        <label className="block font-medium mb-1 text-gray-600 text-xs">Plan Date</label>
+                        <div className="flex gap-1">
+                          <input
+                            type="date"
+                            value={editedActivity.plan_date || ''}
+                            onChange={(e) => handleFieldChange('plan_date', e.target.value || undefined)}
+                            className="bg-white border border-gray-200 flex-1 focus:ring-2 focus:ring-blue-500 outline-none px-2.5 py-1.5 rounded-lg text-xs"
+                          />
+                          {editedActivity.plan_date && (
+                            <button
+                              type="button"
+                              onClick={() => handleFieldChange('plan_date', undefined)}
+                              className="bg-gray-200 font-bold hover:bg-gray-300 px-2 py-1 rounded-lg text-gray-600 text-xs transition-colors"
+                              title="Clear Plan Date"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block font-medium mb-1 text-gray-600 text-xs">Est. Mins</label>
+                        <div className="flex gap-1">
+                          <input
+                            type="number"
+                            value={editedActivity.estimated_minutes ?? ''}
+                            onChange={(e) =>
+                              handleFieldChange(
+                                'estimated_minutes',
+                                e.target.value !== '' ? parseInt(e.target.value, 10) : undefined
+                              )
                             }
-                          }}
-                          className="bg-white border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none px-2.5 py-1.5 rounded-lg text-xs flex-1"
-                        />
-                        {editedActivity.start_time && (
-                          <button
-                            type="button"
-                            onClick={() => handleFieldChange('start_time', null)}
-                            className="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded-lg text-xs font-medium text-gray-700"
-                            title="Clear start time"
-                          >
-                            ✕
-                          </button>
-                        )}
+                            placeholder="30"
+                            className="bg-white border border-gray-200 flex-1 focus:ring-2 focus:ring-blue-500 outline-none px-2.5 py-1.5 rounded-lg text-xs"
+                          />
+                          {editedActivity.estimated_minutes !== null &&
+                            editedActivity.estimated_minutes !== undefined && (
+                              <button
+                                type="button"
+                                onClick={() => handleFieldChange('estimated_minutes', undefined)}
+                                className="bg-gray-200 font-bold hover:bg-gray-300 px-2 py-1 rounded-lg text-gray-600 text-xs transition-colors"
+                                title="Clear Estimated Minutes"
+                              >
+                                ✕
+                              </button>
+                            )}
+                        </div>
                       </div>
                     </div>
-                    <div>
-                      <label className="block font-medium mb-1 text-gray-600 text-xs">Est. Mins</label>
-                      <input
-                        type="number"
-                        value={editedActivity.estimated_minutes || 30}
-                        onChange={(e) => handleFieldChange('estimated_minutes', parseInt(e.target.value) || 30)}
-                        className="bg-white border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none px-2.5 py-1.5 rounded-lg text-xs w-full"
-                      />
-                    </div>
                   </div>
 
-                  {/* Completion Button */}
                   <button
                     type="button"
                     onClick={toggleCompletionNow}
                     className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all ${
                       isCompleted
-                        ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                        ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm'
                         : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                     }`}
                   >
@@ -564,54 +565,170 @@ export default function ActivityDetailModal({
                     {isCompleted ? '✓ Completed' : 'Mark Complete'}
                   </button>
 
-                  {/* Working Since Indicator */}
                   {editedActivity.start_time && !isCompleted && (
-                    <div className="bg-orange-50 border border-orange-200 p-3 rounded-lg">
-                      <label className="block font-bold mb-1 text-orange-800 text-xs uppercase">⏱️ Working Since</label>
-                      <div className="text-orange-900 text-sm font-semibold">
-                        {new Date(editedActivity.start_time).toLocaleString()}
+                    <div className="bg-orange-50 border border-orange-200 flex items-center justify-between p-3 rounded-lg">
+                      <div>
+                        <label className="block font-bold text-[10px] text-orange-800 tracking-wider uppercase">
+                          ⏱️ Working Since
+                        </label>
+                        <div className="font-semibold mt-0.5 text-orange-900 text-xs">
+                          {new Date(editedActivity.start_time).toLocaleString()}
+                        </div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => handleFieldChange('start_time', undefined)}
+                        className="bg-orange-200 font-bold hover:bg-orange-300 px-2 py-1 rounded-lg text-orange-900 text-xs transition-colors"
+                        title="Stop/Clear Timer"
+                      >
+                        Clear Timer
+                      </button>
                     </div>
                   )}
 
-                  {/* Completion Details (only when completed) */}
-                  {isCompleted && (
-                    <>
-                      <div className="border-t border-gray-200 pt-3 mt-3">
-                        <div className="flex font-bold gap-1.5 items-center text-[11px] text-emerald-600 tracking-wider uppercase mb-3">
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          Completion Details
+                  <div className="border-gray-200/80 border-t pt-3 space-y-3">
+                    <div className="flex font-bold gap-1.5 items-center text-[11px] text-gray-400 tracking-wider uppercase">
+                      <Clock className="h-3.5 text-emerald-600 w-3.5" />
+                      Log & Completion Details
+                    </div>
+
+                    <div className="gap-3 grid grid-cols-2">
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block font-medium mb-1 text-gray-600 text-xs">Start Time</label>
+                          <div className="flex gap-1">
+                            <input
+                              type="time"
+                              value={
+                                editedActivity.start_time
+                                  ? new Date(editedActivity.start_time).toTimeString().substring(0, 5)
+                                  : ''
+                              }
+                              onChange={(e) => {
+                                if (e.target.value && editedActivity.plan_date) {
+                                  const dateTime = `${editedActivity.plan_date}T${e.target.value}:00`;
+                                  handleFieldChange('start_time', dateTime);
+                                } else if (e.target.value) {
+                                  const today = formatDateLocal(new Date());
+                                  handleFieldChange('start_time', `${today}T${e.target.value}:00`);
+                                } else {
+                                  handleFieldChange('start_time', undefined);
+                                }
+                              }}
+                              className="bg-white border border-gray-200 flex-1 focus:ring-2 focus:ring-blue-500 outline-none px-2.5 py-1.5 rounded-lg text-xs"
+                            />
+                            {editedActivity.start_time && (
+                              <button
+                                type="button"
+                                onClick={() => handleFieldChange('start_time', undefined)}
+                                className="bg-gray-200 font-bold hover:bg-gray-300 px-2 py-1 rounded-lg text-gray-600 text-xs transition-colors"
+                                title="Clear Start Time"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="block font-medium mb-1 text-gray-600 text-xs">Completed On</label>
+
+                        <div>
+                          <label className="block font-medium mb-1 text-gray-600 text-xs">End Time</label>
+                          <div className="flex gap-1">
+                            <input
+                              type="time"
+                              value={
+                                editedActivity.end_time
+                                  ? new Date(editedActivity.end_time).toTimeString().substring(0, 5)
+                                  : ''
+                              }
+                              onChange={(e) => {
+                                if (e.target.value && (completedAt || editedActivity.plan_date)) {
+                                  const datePart = completedAt || editedActivity.plan_date;
+                                  handleFieldChange('end_time', `${datePart}T${e.target.value}:00`);
+                                } else if (e.target.value) {
+                                  const today = formatDateLocal(new Date());
+                                  handleFieldChange('end_time', `${today}T${e.target.value}:00`);
+                                } else {
+                                  handleFieldChange('end_time', undefined);
+                                }
+                              }}
+                              className="bg-white border border-gray-200 flex-1 focus:ring-2 focus:ring-blue-500 outline-none px-2.5 py-1.5 rounded-lg text-xs"
+                            />
+                            {editedActivity.end_time && (
+                              <button
+                                type="button"
+                                onClick={() => handleFieldChange('end_time', undefined)}
+                                className="bg-gray-200 font-bold hover:bg-gray-300 px-2 py-1 rounded-lg text-gray-600 text-xs transition-colors"
+                                title="Clear End Time"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block font-medium mb-1 text-gray-600 text-xs">Completion Date</label>
+                          <div className="flex gap-1">
                             <input
                               type="date"
-                              value={completedAt}
+                              value={completedAt || ''}
                               onChange={(e) => {
                                 setCompletedAt(e.target.value);
                                 setHasChanges(true);
                               }}
-                              className="bg-white border border-gray-200 focus:ring-2 focus:ring-emerald-500 outline-none px-2.5 py-1.5 rounded-lg text-xs w-full"
+                              className="bg-white border border-gray-200 flex-1 focus:ring-2 focus:ring-emerald-500 outline-none px-2.5 py-1.5 rounded-lg text-xs"
                             />
+                            {completedAt && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCompletedAt('');
+                                  setHasChanges(true);
+                                }}
+                                className="bg-gray-200 font-bold hover:bg-gray-300 px-2 py-1 rounded-lg text-gray-600 text-xs transition-colors"
+                                title="Clear Completion Date"
+                              >
+                                ✕
+                              </button>
+                            )}
                           </div>
-                          <div>
-                            <label className="block font-medium mb-1 text-gray-600 text-xs font-bold">Actual Mins ⭐</label>
+                        </div>
+
+                        <div>
+                          <label className="block font-bold mb-1 text-gray-600 text-xs">Actual Mins ⭐</label>
+                          <div className="flex gap-1">
                             <input
                               ref={actualMinutesRef}
                               type="number"
-                              value={actualMinutes}
+                              value={actualMinutes ?? ''}
                               onChange={(e) => {
-                                setActualMinutes(parseInt(e.target.value) || 0);
+                                const val = e.target.value !== '' ? parseInt(e.target.value, 10) : null;
+                                setActualMinutes(val);
                                 setHasChanges(true);
                               }}
-                              className="bg-yellow-50 border-2 border-yellow-400 focus:ring-2 focus:ring-yellow-500 font-bold outline-none px-2.5 py-1.5 rounded-lg text-sm w-full"
+                              placeholder="0"
+                              className="bg-yellow-50 border-2 border-yellow-400 flex-1 focus:ring-2 focus:ring-yellow-500 font-bold outline-none px-2.5 py-1.5 rounded-lg text-xs"
                             />
+                            {actualMinutes !== null && actualMinutes !== undefined && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActualMinutes(null);
+                                  setHasChanges(true);
+                                }}
+                                className="bg-gray-200 font-bold hover:bg-gray-300 px-2 py-1 rounded-lg text-gray-600 text-xs transition-colors"
+                                title="Clear Actual Minutes"
+                              >
+                                ✕
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
-                    </>
-                  )}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -729,55 +846,20 @@ export default function ActivityDetailModal({
                   <div className="space-y-2">
                     {Object.entries(checklist).map(([key, item]) => (
                       <div key={key} className="bg-white border border-blue-100 p-3 rounded-lg space-y-2">
-                        <div className="flex items-start gap-3">
+                        <div className="flex gap-3 items-start">
                           <input
                             type="checkbox"
                             checked={item.completed}
-                            onChange={async () => {
+                            onChange={() => {
                               const updated = {
                                 ...checklist,
                                 [key]: { ...item, completed: !item.completed }
                               };
                               setChecklist(updated);
-
-                              // Save to database
-                              await fetch('/api/activities', {
-                                method: 'PATCH',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                  activityId: activity.id,
-                                  updates: { daily_checklist: updated }
-                                })
-                              });
+                              setHasChanges(true);
                             }}
-                            className="mt-1 rounded text-blue-600 focus:ring-0"
+                            className="focus:ring-0 mt-1 rounded text-blue-600"
                           />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between mb-2">
-                              <p className={`font-semibold text-sm ${item.completed ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-                                {item.label}
-                              </p>
-                              <button
-                                onClick={() => {
-                                  setNewTaskData({
-                                    title: item.label,
-                                    description: item.tasks,
-                                    planDate: editedActivity.plan_date || '',
-                                    estimatedMinutes: 30
-                                  });
-                                  setShowCreateTaskForm(true);
-                                  setActiveTab('details');
-                                }}
-                                className="text-blue-600 hover:text-blue-700 text-xs font-semibold px-2 py-1 hover:bg-blue-100 rounded shrink-0"
-                              >
-                                Make Task
-                              </button>
-                            </div>
-                            <div
-                              className="prose prose-sm max-w-none text-gray-700"
-                              dangerouslySetInnerHTML={{ __html: item.tasks }}
-                            />
-                          </div>
                         </div>
                       </div>
                     ))}
@@ -788,15 +870,14 @@ export default function ActivityDetailModal({
 
             {activeTab === 'tasks' && (
               <div className="space-y-3">
-                {/* Sub-tasks Section */}
-                <div className="font-bold text-xs text-gray-400 tracking-wider uppercase">
+                <div className="font-bold text-gray-400 text-xs tracking-wider uppercase">
                   Created Sub-tasks
                 </div>
                 {children.length === 0 ? (
                   <div className="py-8 space-y-2 text-center text-gray-400">
                     <FileText className="h-6 mx-auto opacity-30 w-6" />
                     <p className="font-medium text-xs">No sub-tasks yet</p>
-                    <p className="max-w-xs mx-auto text-gray-400 text-[11px]">
+                    <p className="max-w-xs mx-auto text-[11px] text-gray-400">
                       Use "Make Task" above or highlight text in the overview tab.
                     </p>
                   </div>

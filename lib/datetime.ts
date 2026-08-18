@@ -16,41 +16,42 @@ export function parseLocalTimestamp(timestamp: string | null | undefined): {
   dateStr: string;
   timeStr: string;
 } {
-  if (!timestamp) {
+  if (!timestamp || typeof timestamp !== 'string' || !timestamp.trim()) {
     return { date: null, hour: 0, minute: 0, dateStr: '', timeStr: '' };
   }
 
-  // Split into date and time parts
-  const parts = timestamp.includes('T')
-    ? timestamp.split('T')
-    : timestamp.includes(' ')
-    ? timestamp.split(' ')
-    : [timestamp, '00:00:00'];
+  const cleanStr = timestamp.trim();
 
-  const [datePart, timePart] = parts;
+  // 1. Try standard JS Date parsing directly (handles "8/18/2026, 3:05:14 PM", "2026-08-18T15:05:14", etc.)
+  const directDate = new Date(cleanStr);
+  if (!isNaN(directDate.getTime()) && directDate.getFullYear() > 2020) {
+    return {
+      date: directDate,
+      hour: directDate.getHours(),
+      minute: directDate.getMinutes(),
+      dateStr: directDate.toISOString().split('T')[0],
+      timeStr: directDate.toTimeString().split(' ')[0],
+    };
+  }
 
-  // Parse time
-  const timeComponents = timePart.split(':');
-  const hour = parseInt(timeComponents[0] || '0');
-  const minute = parseInt(timeComponents[1] || '0');
-  const second = parseInt(timeComponents[2]?.split('.')[0] || '0');
+  // 2. Fallback for space-separated "YYYY-MM-DD HH:mm:ss" strings where new Date() might fail cross-browser
+  if (cleanStr.includes('-')) {
+    const normalizedStr = cleanStr.replace(' ', 'T');
+    const fallbackDate = new Date(normalizedStr);
+    
+    if (!isNaN(fallbackDate.getTime()) && fallbackDate.getFullYear() > 2020) {
+      return {
+        date: fallbackDate,
+        hour: fallbackDate.getHours(),
+        minute: fallbackDate.getMinutes(),
+        dateStr: fallbackDate.toISOString().split('T')[0],
+        timeStr: fallbackDate.toTimeString().split(' ')[0],
+      };
+    }
+  }
 
-  // Parse date
-  const dateComponents = datePart.split('-');
-  const year = parseInt(dateComponents[0]);
-  const month = parseInt(dateComponents[1]) - 1; // JavaScript months are 0-indexed
-  const day = parseInt(dateComponents[2]);
-
-  // Create Date object in local timezone (not UTC)
-  const date = new Date(year, month, day, hour, minute, second);
-
-  return {
-    date,
-    hour,
-    minute,
-    dateStr: datePart,
-    timeStr: timePart,
-  };
+  // If parsing fails completely, return null cleanly instead of an epoch date
+  return { date: null, hour: 0, minute: 0, dateStr: '', timeStr: '' };
 }
 
 /**

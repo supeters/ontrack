@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Sync Moodle Course Modules and Assignments
+ * Sync Moodle Course Modules and Assignments (BULK VERSION)
+ * Uses safe_bulk_sync_upsert in 2 sequential steps for high performance.
  *
  * Usage:
  *   node scripts/sync-course-modules.mjs --course 58 --mode incremental
@@ -23,87 +24,129 @@ const COURSE_ID = courseIdArg ? parseInt(courseIdArg, 10) : 58;
 const SYNC_MODE = modeArg && ['all', 'incremental'].includes(modeArg.toLowerCase()) ? modeArg.toLowerCase() : 'incremental';
 
 /**
- * Parse daily checklist from description
+ * Normalizes multi-line task strings by removing extra newlines,
+ * unescaping HTML entities, and trimming whitespace per line.
+ */
+function sanitizeTaskText(rawTasks) {
+  if (!rawTasks) return '';
+
+  return rawTasks
+    .replace(/\r\n/g, '\n')              // Normalize line endings
+    .replace(/&nbsp;/gi, ' ')            // Convert non-breaking spaces
+    .replace(/&amp;/gi, '&')             // Decode basic HTML entities
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .split('\n')                         // Split into individual lines
+    .map((line) => line.trim())          // Trim each line
+    .filter((line) => line.length > 0)    // Drop completely empty lines
+    .join('\n');                         // Rejoin with single clean newlines
+}
+
+/**
+ * Strips inline style attributes and font tags from HTML descriptions
+ * while retaining clean structural tags.
+ */
+function sanitizeDescriptionHtml(rawHtml) {
+  if (!rawHtml) return null;
+
+  const cleaned = rawHtml
+    // Strip inline style attributes (e.g. style="font-family: georgia; ...")
+    .replace(/\s*style="[^"]*"/gi, '')
+    .replace(/\s*style='[^']*'/gi, '')
+    // Strip font tags
+    .replace(/<\/?font[^>]*>/gi, '')
+    // Remove empty spans or divs left over after style removal
+    .replace(/<(span|div)[^>]*>\s*<\/\1>/gi, '')
+    .trim();
+
+  return cleaned || null;
+}
+
+/**
+ * Parse daily checklist from section summary/description
  */
 function parseChecklist(description) {
   if (!description) return null;
 
-  // Remove HTML tags for parsing
-  const plainText = description.replace(/<[^>]*>/g, '\n').trim();
+  // 1. Convert block/list elements to newlines BEFORE stripping HTML tags.
+  //    This prevents <li>Day 1...</li> or <p>Day 1</p> from fusing with preceding text.
+  const cleanText = description
+    .replace(/<br\s*[\/]?>/gi, '\n')
+    .replace(/<\/(p|li|div|h[1-6])>/gi, '\n')
+    .replace(/<(p|li|div|ul|ol|h[1-6])[^>]*>/gi, '\n')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/<[^>]*>/g, '')
+    .trim();
 
-  // Try "Day X:" pattern first
-  const dayNumberPattern = /Day\s+(\d+)[:\-\s]+((?:(?!Day\s+\d+).)+)/gis;
-  const dayMatches = [...plainText.matchAll(dayNumberPattern)];
+  // 2. Day pattern:
+  //    - Case insensitive ('Day' or 'day')
+  //    - Handles ASCII hyphens, en-dashes (\u2013), em-dashes (\u2014), colons, and whitespace
+  const dayNumberPattern = /Day\s+(\d+)[:\s\u2010-\u2015\-]*((?:(?!Day\s+\d+).)+)/gis;
+  const dayMatches = [...cleanText.matchAll(dayNumberPattern)];
 
   if (dayMatches.length > 0) {
     const checklist = {};
     dayMatches.forEach((match) => {
       const dayNum = match[1];
-      const tasks = match[2].trim();
-      checklist[`day${dayNum}`] = {
-        label: `Day ${dayNum}`,
-        tasks,
-        completed: false
-      };
+      const tasks = sanitizeTaskText(match[2]);
+
+      if (tasks) {
+        checklist[`day${dayNum}`] = {
+          label: `Day ${dayNum}`,
+          tasks,
+          completed: false
+        };
+      }
     });
-    return checklist;
+    return Object.keys(checklist).length > 0 ? checklist : null;
   }
 
-  // Try weekday pattern: Monday, Tuesday, etc.
-  const weekdayPattern = /(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)[:\-\s]+((?:(?!(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)).)+)/gis;
-  const weekdayMatches = [...plainText.matchAll(weekdayPattern)];
+  // 3. Weekday pattern with Unicode dash support
+  const weekdayPattern = /(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)[:\s\u2010-\u2015\-]*((?:(?!(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)).)+)/gis;
+  const weekdayMatches = [...cleanText.matchAll(weekdayPattern)];
 
   if (weekdayMatches.length > 0) {
     const checklist = {};
     weekdayMatches.forEach((match, index) => {
       const weekday = match[1];
-      const tasks = match[2].trim();
-      checklist[`day${index + 1}`] = {
-        label: weekday,
-        tasks,
-        completed: false
-      };
+      const tasks = sanitizeTaskText(match[2]);
+
+      if (tasks) {
+        checklist[`day${index + 1}`] = {
+          label: weekday,
+          tasks,
+          completed: false
+        };
+      }
     });
-    return checklist;
+    return Object.keys(checklist).length > 0 ? checklist : null;
   }
 
   return null;
 }
 
 /**
- * Get course from database
+ * Map Moodle module type to activity type
  */
-async function getCourse(courseId) {
-  const { data, error } = await supabase
-    .from('courses')
-    .select('*')
-    .eq('id', courseId)
-    .single();
-
-  if (error) throw error;
-  if (!data) throw new Error(`Course ${courseId} not found`);
-  if (data.source_type !== 'moodle') throw new Error('Course is not a Moodle course');
-  if (!data.lms_course_id) throw new Error('Course has no Moodle course ID');
-
-  return data;
+function getActivityType(modname) {
+  const typeMap = {
+    'assign': 'assignment',
+    'resource': 'resource',
+    'url': 'resource',
+    'page': 'resource',
+    'book': 'resource',
+    'folder': 'resource',
+    'quiz': 'assignment',
+    'forum': 'assignment',
+    'label': 'resource'
+  };
+  return typeMap[modname] || 'resource';
 }
 
 /**
- * Get LMS account
- */
-async function getLmsAccount(accountId) {
-  const { data, error } = await supabase
-    .from('lms_accounts')
-    .select('*')
-    .eq('id', accountId)
-    .single();
-
-  if (error) throw error;
-  return data;
-}
-
-/**
- * Call Moodle Web Service helper
+ * Call Moodle Web Service API
  */
 async function callMoodleApi(lmsAccount, wsFunction, params = {}) {
   const body = new URLSearchParams();
@@ -131,197 +174,179 @@ async function callMoodleApi(lmsAccount, wsFunction, params = {}) {
 }
 
 /**
- * Map Moodle module type to activity type
+ * Main execution using 2-step Bulk Sync
  */
-function getActivityType(modname) {
-  const typeMap = {
-    'assign': 'assignment',
-    'resource': 'resource',
-    'url': 'resource',
-    'page': 'resource',
-    'book': 'resource',
-    'folder': 'resource',
-    'quiz': 'assignment',
-    'forum': 'assignment',
-    'label': 'resource'
-  };
-  return typeMap[modname] || 'resource';
-}
+async function syncCourseContents() {
+  try {
+    console.log(`🚀 Starting Moodle BULK Sync | Course ID: ${COURSE_ID} | Mode: ${SYNC_MODE.toUpperCase()}\n`);
 
-/**
- * SYNC COURSE CONTENTS (Supports Incremental & Full Modes)
- */
-async function syncCourseContents(lmsAccount, course, isIncremental = false) {
-  const lastSyncTime = (isIncremental && course.activities_last_sync)
-    ? Math.floor(new Date(course.activities_last_sync).getTime() / 1000)
-    : 0;
-
-  if (isIncremental) {
-    console.log(`⚡ Running Incremental Sync (checking items modified since timestamp: ${lastSyncTime})...`);
-  } else {
-    console.log('📥 Running Full Sync (fetching complete course tree)...');
-  }
-
-  const sections = await callMoodleApi(lmsAccount, 'core_course_get_contents', {
-    courseid: course.lms_course_id
-  });
-
-  if (!Array.isArray(sections) || sections.exception) {
-    throw new Error(`Failed to fetch course contents from Moodle: ${sections.message || 'Unknown error'}`);
-  }
-
-  const stats = {
-    sections: { created: 0, updated: 0 },
-    modules: { created: 0, updated: 0, skipped: 0 }
-  };
-
-  for (const section of sections) {
-    const sectionId = section.id.toString();
-
-    const { data: existingSection } = await supabase
-      .from('activities')
-      .select('id')
-      .eq('lms_id', sectionId)
-      .eq('course_id', course.id)
+    // 1. Fetch Course
+    const { data: course, error: courseError } = await supabase
+      .from('courses')
+      .select('*')
+      .eq('id', COURSE_ID)
       .single();
 
-    // Section 0 is usually "General" - not actionable
-    const isSection0 = section.section === 0;
+    if (courseError || !course) throw new Error(`Course ${COURSE_ID} not found`);
+    if (course.source_type !== 'moodle') throw new Error('Course is not a Moodle course');
+    if (!course.lms_course_id) throw new Error('Course has no Moodle course ID');
 
-    // Parse daily checklist from section description (skip section 0)
-    const dailyChecklist = !isSection0 ? parseChecklist(section.summary) : null;
-    if (dailyChecklist) {
-      console.log(`   📋 Parsed checklist for ${section.name}: ${Object.keys(dailyChecklist).length} days`);
-    }
+    // 2. Fetch LMS Account
+    const { data: lmsAccount, error: accountError } = await supabase
+      .from('lms_accounts')
+      .select('*')
+      .eq('id', course.lms_account_id)
+      .single();
 
-    const sectionData = {
-      title: section.name || `Section ${section.section}`,
-      description: section.summary || null,
-      activity_type: 'module',
-      course_id: course.id,
-      kid_id: course.kid_id,
-      lms_id: sectionId,
-      lms_type: 'section',
-      lms_source: 'moodle',
-      position: section.section || 0,
-      is_hidden: section.visible === 0,
-      is_action_sync: !isSection0,  // Section 0 is not actionable
-      item_needs_processing: !isSection0,  // Only process sections > 0
-      daily_checklist: dailyChecklist,
-      lms_synced_at: new Date().toISOString()
-    };
-
-    let parentActivityId;
-    if (existingSection) {
-      await supabase.from('activities').update(sectionData).eq('id', existingSection.id);
-      parentActivityId = existingSection.id;
-      stats.sections.updated++;
-    } else {
-      const { data: newSec } = await supabase.from('activities').insert(sectionData).select('id').single();
-      parentActivityId = newSec?.id;
-      stats.sections.created++;
-    }
-
-    for (const module of section.modules || []) {
-      const moduleId = module.id.toString();
-      const moduleAdded = module.added || 0;
-      const moduleModified = module.timemodified || 0;
-
-      const { data: existingModule } = await supabase
-        .from('activities')
-        .select('id')
-        .eq('lms_id', moduleId)
-        .eq('course_id', course.id)
-        .single();
-
-      // Skip in incremental mode if the module hasn't been modified or added since last sync
-      if (isIncremental && existingModule) {
-        const mostRecentChange = Math.max(moduleAdded, moduleModified);
-
-        // Debug: Log for first few items
-        if (stats.modules.created + stats.modules.updated + stats.modules.skipped < 3) {
-          console.log(`   🔍 ${module.name}`);
-          console.log(`      added: ${moduleAdded} (${moduleAdded ? new Date(moduleAdded * 1000).toISOString() : 'n/a'})`);
-          console.log(`      timemodified: ${moduleModified} (${moduleModified ? new Date(moduleModified * 1000).toISOString() : 'n/a'})`);
-          console.log(`      mostRecentChange: ${mostRecentChange} (${mostRecentChange ? new Date(mostRecentChange * 1000).toISOString() : 'n/a'})`);
-          console.log(`      lastSyncTime: ${lastSyncTime} (${new Date(lastSyncTime * 1000).toISOString()})`);
-          console.log(`      Decision: ${mostRecentChange <= lastSyncTime ? 'SKIP' : 'UPDATE'}`);
-        }
-
-        if (mostRecentChange === 0 || mostRecentChange <= lastSyncTime) {
-          stats.modules.skipped++;
-          continue;
-        }
-      }
-
-      const activityType = getActivityType(module.modname);
-      const resourceUrl = module.url || `${lmsAccount.lms_url}/mod/${module.modname}/view.php?id=${module.id}`;
-
-      // For Moodle: labels often contain weekly breakdown descriptions
-      // Make labels actionable so they show in the student's task list
-      // BUT: if parent is Section 0, don't make children actionable
-      const isActionable = !isSection0 && (activityType === 'assignment' || module.modname === 'label');
-
-      const moduleData = {
-        title: module.name || 'Unnamed',
-        description: module.description || null,
-        activity_type: activityType,
-        course_id: course.id,
-        kid_id: course.kid_id,
-        parent_activity_id: parentActivityId,
-        lms_id: moduleId,
-        lms_type: module.modname,
-        lms_source: 'moodle',
-        resource_url: resourceUrl,
-        position: module.indent || 0,
-        is_hidden: module.visible === 0,
-        is_action_sync: isActionable,
-        item_needs_processing: true,
-        lms_synced_at: new Date().toISOString()
-      };
-
-      if (existingModule) {
-        await supabase.from('activities').update(moduleData).eq('id', existingModule.id);
-        stats.modules.updated++;
-        console.log(`   ✏️  Updated activity: ${moduleData.title}`);
-      } else {
-        await supabase.from('activities').insert(moduleData);
-        stats.modules.created++;
-        console.log(`   ➕ Created activity: ${moduleData.title}`);
-      }
-    }
-  }
-
-  return stats;
-}
-
-/**
- * Main execution
- */
-async function main() {
-  try {
-    console.log(`🚀 Starting Moodle Sync | Course ID: ${COURSE_ID} | Mode: ${SYNC_MODE.toUpperCase()}\n`);
-
-    const course = await getCourse(COURSE_ID);
-    const lmsAccount = await getLmsAccount(course.lms_account_id);
+    if (accountError || !lmsAccount) throw new Error('LMS account not found');
 
     const isIncremental = SYNC_MODE === 'incremental';
-    const stats = await syncCourseContents(lmsAccount, course, isIncremental);
+    const lastSyncTime = (isIncremental && course.activities_last_sync)
+      ? Math.floor(new Date(course.activities_last_sync).getTime() / 1000)
+      : 0;
 
-    console.log(`\n📊 Sync Complete: ${stats.modules.created} created, ${stats.modules.updated} updated, ${stats.modules.skipped} skipped.`);
+    console.log(`📡 Fetching course structure from Moodle...`);
+    const sections = await callMoodleApi(lmsAccount, 'core_course_get_contents', {
+      courseid: course.lms_course_id
+    });
 
-    // Update last sync timestamp
+    if (!Array.isArray(sections) || sections.exception) {
+      throw new Error(`Failed to fetch course contents from Moodle: ${sections.message || 'Unknown error'}`);
+    }
+
+    const sectionSyncRecords = [];
+    const itemSyncRecords = [];
+    let parsedChecklistsCount = 0;
+
+    // Traverse Moodle tree and collect data
+    for (const section of sections) {
+      const sectionLmsId = section.id.toString();
+      const isSection0 = section.section === 0;
+      const dailyChecklist = !isSection0 ? parseChecklist(section.summary) : null;
+
+      if (dailyChecklist) {
+        parsedChecklistsCount++;
+      }
+
+      // Section Record (Module)
+      sectionSyncRecords.push({
+        lms_id: sectionLmsId,
+        course_id: course.id,
+        lms_source: 'moodle',
+        title: section.name || `Section ${section.section}`,
+        description: sanitizeDescriptionHtml(section.summary),
+        activity_type: 'module',
+        kid_id: course.kid_id,
+        parent_activity_id: null,
+        module_id: null,
+        lms_type: 'section',
+        position: section.section || 0,
+        is_hidden: section.visible === 0,
+        is_action_sync: !isSection0,
+        daily_checklist: dailyChecklist,
+        lms_synced_at: new Date().toISOString(),
+        item_needs_processing: !isSection0
+      });
+
+      // Module Item Records (Assignments, Resources, Labels)
+      for (const module of section.modules || []) {
+        const moduleAdded = module.added || 0;
+        const moduleModified = module.timemodified || 0;
+        const mostRecentChange = Math.max(moduleAdded, moduleModified);
+
+        // Incremental check: Skip if unmodified
+        if (isIncremental && mostRecentChange > 0 && mostRecentChange <= lastSyncTime) {
+          continue;
+        }
+
+        const activityType = getActivityType(module.modname);
+        const resourceUrl = module.url || `${lmsAccount.lms_url}/mod/${module.modname}/view.php?id=${module.id}`;
+        const isActionable = !isSection0 && (activityType === 'assignment' || module.modname === 'label');
+
+        itemSyncRecords.push({
+          lms_id: module.id.toString(),
+          course_id: course.id,
+          lms_source: 'moodle',
+          title: module.name || 'Unnamed',
+          description: sanitizeDescriptionHtml(module.description),
+          activity_type: activityType,
+          kid_id: course.kid_id,
+          _parent_section_lms_id: sectionLmsId, // Temporary key for resolution in Step 2
+          lms_type: module.modname,
+          resource_url: resourceUrl,
+          position: module.indent || 0,
+          is_hidden: module.visible === 0,
+          is_action_sync: isActionable,
+          lms_synced_at: new Date().toISOString(),
+          item_needs_processing: true
+        });
+      }
+    }
+
+    console.log(`\n📦 Prepared ${sectionSyncRecords.length} sections and ${itemSyncRecords.length} items for bulk sync.`);
+    console.log(`📋 Successfully extracted checklists from ${parsedChecklistsCount} sections.`);
+
+    // -------------------------------------------------------------
+    // STEP 1: Bulk Upsert Sections
+    // -------------------------------------------------------------
+    console.log(`\n💾 Step 1: Bulk upserting ${sectionSyncRecords.length} sections...`);
+    const { data: sectionResults, error: sectionError } = await supabase.rpc('safe_bulk_sync_upsert', {
+      sync_records: sectionSyncRecords
+    });
+
+    if (sectionError) throw sectionError;
+
+    // Create a mapping from Moodle Section LMS ID -> Supabase Activity ID
+    const sectionLmsToDbId = {};
+    sectionResults.forEach((res) => {
+      if (res.activity_id) {
+        sectionLmsToDbId[res.lms_id] = res.activity_id;
+      }
+    });
+
+    const secInserted = sectionResults.filter(r => r.was_inserted).length;
+    const secUpdated = sectionResults.filter(r => r.was_updated).length;
+    const secSkipped = sectionResults.filter(r => r.was_skipped).length;
+    console.log(`   📊 Sections -> Inserted: ${secInserted}, Updated: ${secUpdated}, Skipped: ${secSkipped}`);
+
+    // -------------------------------------------------------------
+    // STEP 2: Resolve Parent IDs & Bulk Upsert Items
+    // -------------------------------------------------------------
+    console.log(`\n💾 Step 2: Resolving parent sections & bulk upserting ${itemSyncRecords.length} items...`);
+
+    itemSyncRecords.forEach((item) => {
+      const parentSectionLmsId = item._parent_section_lms_id;
+      const dbParentId = sectionLmsToDbId[parentSectionLmsId] || null;
+
+      item.parent_activity_id = dbParentId;
+      item.module_id = dbParentId;
+
+      delete item._parent_section_lms_id; // Clean up temporary key
+    });
+
+    const { data: itemResults, error: itemError } = await supabase.rpc('safe_bulk_sync_upsert', {
+      sync_records: itemSyncRecords
+    });
+
+    if (itemError) throw itemError;
+
+    const itemsInserted = itemResults.filter(r => r.was_inserted).length;
+    const itemsUpdated = itemResults.filter(r => r.was_updated).length;
+    const itemsSkipped = itemResults.filter(r => r.was_skipped).length;
+    console.log(`   📊 Items -> Inserted: ${itemsInserted}, Updated: ${itemsUpdated}, Skipped: ${itemsSkipped}`);
+
+    // Update Last Sync Timestamp
     await supabase
       .from('courses')
       .update({ activities_last_sync: new Date().toISOString() })
       .eq('id', course.id);
 
-    console.log('⏰ Updated activities_last_sync timestamp.\n');
+    console.log(`\n✅ Moodle Bulk Sync Completed Successfully!`);
 
   } catch (error) {
-    console.error('\n❌ Sync failed:', error.message);
+    console.error(`\n❌ Moodle Bulk Sync Failed:`, error.message);
     process.exit(1);
   }
 }
 
-main();
+syncCourseContents();

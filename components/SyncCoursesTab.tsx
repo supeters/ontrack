@@ -33,7 +33,7 @@ export default function SyncCoursesTab({ selectedSchoolYear }: SyncCoursesTabPro
   const [syncing, setSyncing] = useState(false);
   const [calculating, setCalculating] = useState(false);
   const [syncOutput, setSyncOutput] = useState<string>('');
-  const [syncType, setSyncType] = useState<'incremental' | 'full'>('incremental');
+  const [syncType, setSyncType] = useState<'incremental' | 'all'>('incremental');
   const [editingCourse, setEditingCourse] = useState<number | null>(null);
   const [editValues, setEditValues] = useState<{
     class_days: string;
@@ -155,8 +155,8 @@ export default function SyncCoursesTab({ selectedSchoolYear }: SyncCoursesTabPro
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              courseId: course.id,
-              syncType: syncType
+              courseIds: [course.id],
+              mode: syncType
             })
           });
 
@@ -180,6 +180,12 @@ export default function SyncCoursesTab({ selectedSchoolYear }: SyncCoursesTabPro
               if (line.startsWith('data: ')) {
                 try {
                   const data = JSON.parse(line.slice(6));
+                  if (data.message) {
+                    setSyncOutput(prev => prev + data.message);
+                  }
+                  if (data.error) {
+                    setSyncOutput(prev => prev + data.error);
+                  }
                   if (data.type === 'log' && data.message) {
                     setSyncOutput(prev => prev + data.message + '\n');
                   } else if (data.type === 'error' && data.message) {
@@ -382,11 +388,11 @@ export default function SyncCoursesTab({ selectedSchoolYear }: SyncCoursesTabPro
           <label className="flex gap-2 items-center">
             <input
               type="radio"
-              checked={syncType === 'full'}
-              onChange={() => setSyncType('full')}
+              checked={syncType === 'all'}
+              onChange={() => setSyncType('all')}
               className="h-4 w-4"
             />
-            <span className={`text-sm ${c.moduleText}`}>Full (update all activities)</span>
+            <span className={`text-sm ${c.moduleText}`}>All(update all activities)</span>
           </label>
         </div>
       </div>

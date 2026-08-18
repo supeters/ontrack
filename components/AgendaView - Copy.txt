@@ -6,7 +6,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import ActivityDetailModal from './ActivityDetailModal';
 import CourseSetupModal from './CourseSetupModal';
 import ActivityCreateModal from './ActivityCreateModal';
-import { formatDateShort, getDateStr, formatDateLocal, formatTimestampLocal, parseLocalTimestamp} from '@/lib/datetime';
+import { formatDateShort, getDateStr, formatDateLocal, formatTimestampLocal} from '@/lib/datetime';
 
 interface AgendaViewProps {
   kidId: number;
@@ -326,32 +326,7 @@ const handlePauseWork = async (activity: any, e: React.MouseEvent) => {
 
 const handleCompleteWork = async (activity: any, e: React.MouseEvent) => {
   e.stopPropagation();
-
-  const nowTimestamp = formatTimestampLocal(new Date());
-
-  // Calculate actual minutes on the fly if start_time exists and actual_minutes isn't set
-  let calculatedActualMinutes = activity.actual_minutes;
-
-  if (activity.start_time && (activity.actual_minutes === null || activity.actual_minutes === undefined)) {
-    const { date: startDate } = parseLocalTimestamp(activity.start_time);
-
-    console.log('DEBUG handleCompleteWork:', {
-      raw_start_time: activity.start_time,
-      parsed_startDate: startDate,
-      isValidDate: startDate && !isNaN(startDate.getTime()),
-      parsedYear: startDate ? startDate.getFullYear() : null
-    });
-
-    // Guard: Must be a valid date AND must be after year 2020 (prevents 1970 fallback)
-    if (startDate && !isNaN(startDate.getTime()) && startDate.getFullYear() > 2020) {
-      const elapsedMs = new Date().getTime() - startDate.getTime();
-      calculatedActualMinutes = Math.max(0, Math.round(elapsedMs / 60000));
-    } else {
-      console.warn('⚠️ Invalid or Epoch start_time detected. Defaulting calculatedActualMinutes to null.');
-      calculatedActualMinutes = null;
-    }
-  }
-
+  
   try {
     await fetch('/api/activities', {
       method: 'PATCH',
@@ -360,13 +335,12 @@ const handleCompleteWork = async (activity: any, e: React.MouseEvent) => {
         activityId: activity.id,
         updates: {
           is_completed: true,
-          completed_at: nowTimestamp,
-          end_time: nowTimestamp,
-          actual_minutes: calculatedActualMinutes,
+          completed_at: formatTimestampLocal(new Date()),
+          end_time: formatTimestampLocal(new Date()),
         },
       }),
     });
-
+    
     await loadAgendaData();
   } catch (error) {
     console.error('Error completing work:', error);

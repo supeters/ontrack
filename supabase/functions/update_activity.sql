@@ -24,7 +24,11 @@ BEGIN
       WHEN p_updates ? 'completed_at' THEN (p_updates->>'completed_at')::DATE
       ELSE completed_at
     END,
-    actual_minutes = COALESCE((p_updates->>'actual_minutes')::INTEGER, actual_minutes),
+   actual_minutes = CASE
+      -- If actual_minutes is explicitly provided, use it (manual override)
+      WHEN p_updates ? 'actual_minutes' THEN (p_updates->>'actual_minutes')::INTEGER
+      ELSE actual_minutes
+    END,
     estimated_minutes = COALESCE((p_updates->>'estimated_minutes')::INTEGER, estimated_minutes),
     start_time = CASE
       WHEN p_updates ? 'start_time' THEN (p_updates->>'start_time')::TIMESTAMP
