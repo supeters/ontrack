@@ -5,6 +5,7 @@ export interface ThemeColors {
   // Background
   bg: string;
   cardBg: string;
+  card?: string;
 
   // Module header
   moduleHeader: string;
