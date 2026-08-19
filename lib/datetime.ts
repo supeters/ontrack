@@ -113,10 +113,30 @@ export function formatDateShort(dateStr: string): string {
  * Format a Date object as YYYY-MM-DD in local timezone (not UTC)
  * This avoids the timezone shift that happens with date.toISOString()
  */
-export function formatDateLocal(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+export function formatDateLocal(date: Date | string, format?: string): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  
+  if (format) {
+    // Handle different format strings like 'M/d/yy', 'M/d/yy h:mm a', etc.
+    const year = d.getFullYear();
+    const month = d.getMonth() + 1;
+    const day = d.getDate();
+    const hours = d.getHours();
+    const minutes = d.getMinutes();
+    
+    if (format === 'M/d/yy') {
+      return `${month}/${day}/${String(year).slice(-2)}`;
+    } else if (format === 'M/d/yy h:mm a') {
+      const hour12 = hours % 12 || 12;
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      const min = String(minutes).padStart(2, '0');
+      return `${month}/${day}/${String(year).slice(-2)} ${hour12}:${min} ${ampm}`;
+    }
+  }
+  
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 

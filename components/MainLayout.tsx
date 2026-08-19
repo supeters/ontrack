@@ -5,15 +5,16 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
   BookOpen, Calendar, Settings, LogOut, Palette, ChevronDown, ChevronUp, Home,
-  PanelLeftClose, PanelLeft
+  PanelLeftClose, PanelLeft, Award
 } from 'lucide-react';
 import CoursesView from './CoursesView';
 import AgendaView from './AgendaView';
-import PlannerView from './PlannerView';
+
 import CalendarView from './CalendarView';
 import SettingsView from './SettingsView';
 import { themes } from '@/lib/themes';
 import { formatDateLocal } from '@/lib/datetime';
+import GradesView from './GradesView';
 
 interface Course {
   id: number;
@@ -49,7 +50,7 @@ const formatClassDays = (days?: string | number): string => {
 export default function MainLayout() {
   const { signOut, user, kids, selectedKid, setSelectedKid } = useAuth();
   const { theme, currentTheme, changeTheme } = useTheme();
-  const [selectedView, setSelectedView] = useState<'agenda' | 'planner' | 'calendar' | 'courses' | 'settings'>('agenda');
+  const [selectedView, setSelectedView] = useState<'agenda' |  'calendar' | 'courses' | 'settings' | 'grades'>('agenda');
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [selectedSchoolYear, setSelectedSchoolYear] = useState<string>('');
   const [showKidDropdown, setShowKidDropdown] = useState(false);
@@ -309,19 +310,8 @@ export default function MainLayout() {
               {!isSidebarCollapsed && <span className="font-semibold text-xs truncate">Agenda</span>}
             </button>
 
-            {/* Planner Link */}
-            <button
-              onClick={() => setSelectedView('planner')}
-              title={isSidebarCollapsed ? "Planner" : undefined}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-center gap-2.5 ${
-                selectedView === 'planner'
-                  ? `${c.sidebarSelectedBg} ${c.sidebarSelectedText} border ${c.sidebarSelectedBorder} shadow-sm`
-                  : `${c.sidebarItemBg} ${c.sidebarItemText} ${c.sidebarItemHover.replace('border-transparent', '')} border ${c.sidebarItemBorder}`
-              }`}
-            >
-              <Calendar className="h-4 shrink-0 w-4" />
-              {!isSidebarCollapsed && <span className="font-semibold text-xs truncate">Planner</span>}
-            </button>
+            
+
 
             {/* Calendar Link */}
             <button
@@ -335,6 +325,20 @@ export default function MainLayout() {
             >
               <Calendar className="h-4 shrink-0 w-4" />
               {!isSidebarCollapsed && <span className="font-semibold text-xs truncate">Calendar</span>}
+            </button>
+
+            {/* Grades Link */}
+            <button
+              onClick={() => setSelectedView('grades')}
+              title={isSidebarCollapsed ? "Grades" : undefined}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-center gap-2.5 ${
+                selectedView === 'grades'
+                  ? `${c.sidebarSelectedBg} ${c.sidebarSelectedText} border ${c.sidebarSelectedBorder} shadow-sm`
+                  : `${c.sidebarItemBg} ${c.sidebarItemText} ${c.sidebarItemHover.replace('border-transparent', '')} border ${c.sidebarItemBorder}`
+              }`}
+            >
+              <Award className="h-4 shrink-0 w-4" />
+              {!isSidebarCollapsed && <span className="font-semibold text-xs truncate">Grades</span>}
             </button>
 
             {/* Collapsible Courses Section */}
@@ -422,10 +426,10 @@ export default function MainLayout() {
             />
           ) : selectedView === 'courses' && selectedCourse ? (
             <CoursesView selectedCourse={selectedCourse} kidId={selectedKid?.id || 0} selectedDate={selectedDate} />
-          ) : selectedView === 'planner' && selectedKid ? (
-            <PlannerView kidId={selectedKid.id} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />
           ) : selectedView === 'calendar' && selectedKid ? (
             <CalendarView kidId={selectedKid.id} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />
+          ) : selectedView === 'grades' && selectedKid ? (
+          <GradesView kidId={selectedKid.id} selectedCourse={selectedCourse} schoolYear={selectedSchoolYear} />
           ) : selectedView === 'settings' ? (
             <SettingsView selectedSchoolYear={selectedSchoolYear} selectedKid={selectedKid} />
           ) : (
