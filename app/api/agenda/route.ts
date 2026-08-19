@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
 
     if (!result) {
       return NextResponse.json({
-        courses: [],
+       
         today_activities: [],
         overdue_activities: [],
         scheduled_classes: [],
@@ -50,13 +50,13 @@ export async function GET(request: NextRequest) {
       
       // Handle Postgres named OR position-based RPC responses
       return NextResponse.json({
-        courses: result.courses ?? result[keys[0]] ?? [],
-        today_activities: result.today_activities ?? result[keys[1]] ?? [],
-        overdue_activities: result.overdue_activities ?? result[keys[2]] ?? [],
-        scheduled_classes: result.scheduled_classes ?? result[keys[3]] ?? [],
         
-        next_module_activities: result.next_module_activities ?? result[keys[4]] ?? [],
-        completed_activities: result.completed_activities ?? result[keys[5]] ?? [],
+        today_activities: result.today_activities ?? result[keys[0]] ?? [],
+        overdue_activities: result.overdue_activities ?? result[keys[1]] ?? [],
+        scheduled_classes: result.scheduled_classes ?? result[keys[2]] ?? [],
+        
+        next_module_activities: result.next_module_activities ?? result[keys[3]] ?? [],
+        completed_activities: result.completed_activities ?? result[keys[4]] ?? [],
       });
     }
 

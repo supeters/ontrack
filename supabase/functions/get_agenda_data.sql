@@ -1,6 +1,6 @@
 DECLARE
   v_day_of_week INT;
-  v_courses JSONB;
+ 
   v_today_activities JSONB;
   v_overdue_activities JSONB;
   v_scheduled_classes JSONB;
@@ -15,30 +15,7 @@ BEGIN
   -- Get day of week (0=Sunday, 1=Monday, etc.)
   v_day_of_week := EXTRACT(DOW FROM v_target_date);
 
-  -- 1. Get all active courses with scheduled_today flag
-  SELECT jsonb_agg(
-    jsonb_build_object(
-      'id', c.id,
-      'course_name', c.course_name,
-      'subject', c.subject,
-      'work_days', c.work_days,
-      'class_days', c.class_days,
-      'meeting_link', c.meeting_link,
-      'course_webpage', c.course_webpage,
-      'teacher', c.teacher,
-      'scheduled_today', CASE
-        WHEN c.work_days IS NOT NULL
-          AND c.work_days LIKE '%' || v_day_of_week::TEXT || '%'
-        THEN true
-        ELSE false
-      END
-    )
-  )
-  INTO v_courses
-  FROM public.courses c
-  WHERE c.kid_id = p_kid_id
-    AND c.is_active = true;
-
+  
   -- 2. Get actionable activities for selected date
   SELECT jsonb_agg(
     to_jsonb(a.*) || jsonb_build_object(
@@ -51,12 +28,11 @@ BEGIN
   LEFT JOIN public.courses c ON a.course_id = c.id
   LEFT JOIN public.activities m ON a.module_id = m.id
   WHERE a.kid_id = p_kid_id
-    AND a.plan_date = v_target_date
+    AND (a.plan_date = v_target_date or a.start_time is not null)
     AND a.is_action = true
     AND a.is_deleted = false
     AND a.is_hidden = false
-    and a.is_completed = false
-    AND a.activity_type NOT IN ('module', 'workgroup');
+    and a.is_completed = false;
 
   -- 3. Get overdue actionable activities (before current date, not completed)
   SELECT jsonb_agg(
@@ -119,7 +95,7 @@ INTO v_next_module_activities
   WHERE a.kid_id = p_kid_id
     AND a.plan_date > v_target_date and a.plan_date <= v_target_date + 7
     AND a.is_completed = false
-    AND a.is_action = true
+    AND (a.is_action = true or a.activity_type in ('class', 'event'))
     AND a.is_deleted = false
     AND a.is_hidden = false
     AND a.activity_type NOT IN ('module', 'workgroup');
@@ -136,7 +112,7 @@ INTO v_next_module_activities
   LEFT JOIN public.courses c ON a.course_id = c.id
   LEFT JOIN public.activities m ON a.module_id = m.id
   WHERE a.kid_id = p_kid_id
-    AND a.completed_at::DATE = CURRENT_DATE
+    AND a.completed_at::DATE = v_target_date
     AND a.is_completed = true
     AND a.is_action = true
     AND a.is_deleted = false
@@ -145,7 +121,7 @@ INTO v_next_module_activities
 
   -- Return all data in a single row
   RETURN QUERY SELECT
-    COALESCE(v_courses, '[]'::jsonb),
+    
     COALESCE(v_today_activities, '[]'::jsonb),
     COALESCE(v_overdue_activities, '[]'::jsonb),
     COALESCE(v_scheduled_classes, '[]'::jsonb),

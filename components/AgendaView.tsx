@@ -128,16 +128,11 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
   }, [scheduledClasses, selectedDateStr]);
 
   // Filter out days that have no events in week view
+ // Always return all 7 days of the selected week
   const weekDaysWithEvents = useMemo(() => {
-    return currentWeekDays.filter((dayObj) => {
-      const dayStr = formatDateLocal(dayObj);
-      const isToday = dayStr === selectedDateStr;
-      const dayEvents = (scheduledClasses || []).filter(ev => ev.start_time && getDateStr(ev.start_time) === dayStr);
-      // Keep if it has events OR if it is today
-      return dayEvents.length > 0 || isToday;
-    });
-  }, [currentWeekDays, scheduledClasses, selectedDateStr]);
-
+    return currentWeekDays;
+  }, [currentWeekDays]);
+  
   // Group Backlog / Upcoming Tasks by Course
   const backlogGroupedByCourse = useMemo(() => {
     const map = new Map<string, any[]>();
