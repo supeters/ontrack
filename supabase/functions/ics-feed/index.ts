@@ -86,6 +86,7 @@ Deno.serve(async (req) => {
       'PRODID:-//Family Dashboard//Live Calendar//EN',
       `X-WR-CALNAME:${kidName}'s Schedule`,
       'X-WR-CALDESC:Live calendar from Family Dashboard',
+      'X-WR-TIMEZONE:America/Chicago', // Add this
       'CALSCALE:GREGORIAN',
       'METHOD:PUBLISH'
     ]
@@ -117,13 +118,12 @@ Deno.serve(async (req) => {
         return
       }
 
-      // In the forEach loop, change:
-      icsLines.push(
+     icsLines.push(
         'BEGIN:VEVENT',
         `UID:activity-${activity.id}@familydashboard.com`,
         `DTSTAMP:${formatICSDate(new Date())}`,
-        `DTSTART:${formatICSDateLocal(startDate)}`,  // Changed
-        `DTEND:${formatICSDateLocal(endDate)}`,      // Changed
+        `DTSTART;TZID=America/Chicago:${formatICSDateLocal(startDate)}`, // Updated
+        `DTEND;TZID=America/Chicago:${formatICSDateLocal(endDate)}`,     // Updated
         `SUMMARY:${activity.title || 'Event'}`,
         `DESCRIPTION:${(activity.description || '').replace(/\n/g, '\\n')}`,
         `CATEGORIES:${activity.activity_type || 'EVENT'}`,

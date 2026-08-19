@@ -13,6 +13,8 @@ interface AgendaViewProps {
   selectedDate: Date;
 }
 
+
+
 export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
   const { theme } = useTheme();
   const c = theme.colors;
