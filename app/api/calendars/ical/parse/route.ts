@@ -3,7 +3,12 @@ import nodeIcal from 'node-ical';
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const feedUrl = searchParams.get('url');
-  
+
+  // Guard clause for missing or empty URL
+  if (!feedUrl) {
+    return Response.json({ error: 'Missing required "url" parameter' }, { status: 400 });
+  }
+
   // Set window boundaries (e.g., fetch from beginning of month to 1 month out)
   const rangeStart = new Date();
   rangeStart.setDate(rangeStart.getDate() - 14);
