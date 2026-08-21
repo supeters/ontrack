@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
-import { School, Calendar as CalendarIcon, Plane, Plus, Edit2, Trash2, Download, BookOpen, GraduationCap, RefreshCw } from 'lucide-react';
+import { School, Calendar as CalendarIcon, Plane, Plus, Edit2, Trash2, Download, BookOpen, GraduationCap, RefreshCw, CheckCircle2, XCircle } from 'lucide-react';
 import CalendarExport from './CalendarExport';
 import MoodleSettingsTab from './MoodleSettingsTab';
 import CanvasSettingsTab from './CanvasSettingsTab';
@@ -50,7 +50,7 @@ export default function SettingsView({ selectedSchoolYear, selectedKid }: Settin
   const { theme } = useTheme();
   const c = theme.colors;
 
-  const [activeTab, setActiveTab] = useState<'schools' | 'calendars' | 'holidays' | 'sync' | 'canvas' | 'moodle' | 'export'>('schools');
+  const [activeTab, setActiveTab] = useState<'schools' | 'calendars' | 'holidays' | 'sync' | 'canvas' | 'moodle' | 'google' | 'export'>('schools');
   const [schools, setSchools] = useState<School[]>([]);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
@@ -78,6 +78,10 @@ export default function SettingsView({ selectedSchoolYear, selectedKid }: Settin
   const [holidayName, setHolidayName] = useState('');
   const [holidayDescription, setHolidayDescription] = useState('');
 
+  // Google Calendar Sync State
+  const [kids, setKids] = useState<Kid[]>([]);
+  const [googleConnections, setGoogleConnections] = useState<Record<number, { connected: boolean; calendarName: string; calendarId: string }>>({});
+  
   const loadSchools = async () => {
     try {
       const res = await fetch('/api/schools');
@@ -108,6 +112,45 @@ export default function SettingsView({ selectedSchoolYear, selectedKid }: Settin
     }
   };
 
+    const loadKids = async () => {
+    try {
+      const res = await fetch('/api/kids');
+      const data = await res.json();
+      setKids(data || []);
+      
+      // Load Google connection status for each kid
+      const connections: Record<number, any> = {};
+      await Promise.all(
+        data.map(async (kid: Kid) => {
+          try {
+            const statusRes = await fetch(`/api/auth/google/status?kidId=${kid.id}`);
+            const statusData = await statusRes.json();
+            connections[kid.id] = {
+              connected: statusData.connected || false,
+              calendarName: statusData.calendarName || '',
+              calendarId: statusData.calendarId || '',
+            };
+          } catch (error) {
+            connections[kid.id] = { connected: false, calendarName: '', calendarId: '' };
+          }
+        })
+      );
+      setGoogleConnections(connections);
+    } catch (error) {
+      console.error('Error loading kids:', error);
+    }
+  };
+
+  const handleDisconnectGoogle = async (kidId: number) => {
+    if (!confirm('Disconnect Google Calendar for this student?')) return;
+    try {
+      await fetch(`/api/auth/google/disconnect?kidId=${kidId}`, { method: 'DELETE' });
+      await loadKids(); // Reload to refresh connection status
+    } catch (error) {
+      console.error('Error disconnecting Google Calendar:', error);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'schools') loadSchools();
     else if (activeTab === 'calendars') {
@@ -117,6 +160,9 @@ export default function SettingsView({ selectedSchoolYear, selectedKid }: Settin
     else if (activeTab === 'holidays') {
       loadCalendars();
       loadHolidays();
+    }
+    else if (activeTab === 'google') {
+      loadKids();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
@@ -316,6 +362,19 @@ export default function SettingsView({ selectedSchoolYear, selectedKid }: Settin
             <div className="flex gap-2 items-center">
               <BookOpen className="h-4 w-4" />
               Moodle
+            </div>
+          </button>
+          <button
+            onClick={() => setActiveTab('google')}
+            className={`px-4 py-3 font-medium transition-colors border-b-2 ${
+              activeTab === 'google'
+                ? `${c.checkboxChecked.split(' ')[0].replace('bg-', 'border-')} ${c.moduleText}`
+                : `border-transparent ${c.mutedText} hover:${c.moduleText}`
+            }`}
+          >
+            <div className="flex gap-2 items-center">
+              <CalendarIcon className="h-4 w-4" />
+              Google Calendar
             </div>
           </button>
           <button
@@ -682,7 +741,78 @@ export default function SettingsView({ selectedSchoolYear, selectedKid }: Settin
         {activeTab === 'moodle' && (
           <MoodleSettingsTab selectedSchoolYear={selectedSchoolYear} />
         )}
+        {activeTab === 'google' && (
+          <div>
+            <div className="mb-4">
+              <h2 className={`text-lg font-semibold ${c.moduleText}`}>Google Calendar Sync</h2>
+              <p className={`text-sm ${c.mutedText} mt-1`}>Connect each student's calendar to Google Calendar for event creation and syncing</p>
+            </div>
 
+            <div className="space-y-3">
+              {kids.length === 0 ? (
+                <div className={`p-8 border ${c.moduleBorder} rounded-lg ${c.cardBg} text-center`}>
+                  <p className={c.mutedText}>No students found</p>
+                </div>
+              ) : (
+                kids.map((kid) => {
+                  const connection = googleConnections[kid.id] || { connected: false, calendarName: '', calendarId: '' };
+                  
+                  return (
+                    <div key={kid.id} className={`p-4 border ${c.moduleBorder} rounded-lg ${c.cardBg} flex justify-between items-center`}>
+                      <div className="flex gap-3 items-center">
+                        <div>
+                          <div className={`font-medium ${c.moduleText}`}>{kid.name}</div>
+                          {connection.connected && (
+                            <div className={`text-sm ${c.mutedText} mt-0.5`}>
+                              Connected to: <span className="font-medium">{connection.calendarName || 'Google Calendar'}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-2 items-center">
+                        {connection.connected ? (
+                          <>
+                            <div className="flex gap-1.5 items-center mr-2 text-emerald-600 text-sm">
+                              <CheckCircle2 className="h-4 w-4" />
+                              <span className="font-medium">Connected</span>
+                            </div>
+                            <a
+                              href={`/api/auth/google?kid_id=${kid.id}`}
+                              className={`px-3 py-1.5 text-sm border ${c.moduleBorder} ${c.moduleText} rounded-lg hover:bg-gray-50 transition-colors`}
+                            >
+                              Change Calendar
+                            </a>
+                            <button
+                              onClick={() => handleDisconnectGoogle(kid.id)}
+                              className="border border-red-300 hover:bg-red-50 px-3 py-1.5 rounded-lg text-red-600 text-sm transition-colors"
+                            >
+                              Disconnect
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex gap-1.5 items-center mr-2 text-gray-400 text-sm">
+                              <XCircle className="h-4 w-4" />
+                              <span className="font-medium">Not Connected</span>
+                            </div>
+                            <a
+                              href={`/api/auth/google?kid_id=${kid.id}`}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm ${c.checkboxChecked} text-white rounded-lg hover:opacity-90 transition-opacity`}
+                            >
+                              <RefreshCw className="h-3.5 w-3.5" />
+                              Connect Google Calendar
+                            </a>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
         {activeTab === 'export' && (
           <CalendarExport />
         )}

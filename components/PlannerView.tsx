@@ -194,20 +194,6 @@ export default function PlannerView({ kidId, selectedDate, setSelectedDate }: Pl
     setIsModalOpen(false);
   };
 
-  const handleActivitySave = async ({ activityId, updates }: any) => {
-    try {
-      await fetch('/api/activities', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activityId, updates }),
-      });
-      closeActivityModal();
-      loadData();
-    } catch (error) {
-      console.error('Error updating activity:', error);
-    }
-  };
-
   // Drag and drop handlers
   const handleDragStart = (activity: any) => {
     setDraggedActivity(activity);
@@ -347,122 +333,117 @@ export default function PlannerView({ kidId, selectedDate, setSelectedDate }: Pl
 
       {/* Grid View - Course-grouped */}
       <div className="flex-1 overflow-auto">
-          <table className="border-collapse text-xs w-full">
-            <thead>
-              <tr>
-                <th className={`sticky left-0 z-10 ${c.cardBg} border-b ${c.divider} p-2 text-left text-xs font-semibold ${c.moduleText} w-32`}>
-                  Course
-                </th>
-                {weekDates.map((date, index) => {
-                  const dateStr = formatDateLocal(date);
-                  const dayTotal = dailyTotals[dateStr] || 0;
-                  return (
-                    <th
-                      key={index}
-                      className={`border-b ${c.divider} p-2 text-xs font-semibold ${
-                        isToday(date) ? `${c.checkboxChecked} text-white` : c.moduleText
-                      }`}
-                    >
-                      <div className="whitespace-nowrap">{formatDate(date)}</div>
-                      {dayTotal > 0 && (
-                        <div className={`text-[10px] font-medium mt-0.5 ${isToday(date) ? 'text-white' : c.statText}`}>
-                          {formatTime(dayTotal)}
-                        </div>
-                      )}
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {courses.length === 0 && (
-                <tr>
-                  <td colSpan={weekDates.length + 1} className={`p-4 text-center ${c.mutedText} text-sm`}>
-                    No courses with activities this week
-                  </td>
-                </tr>
-              )}
-              {courses.map(course => {
-                const courseTotal = courseTotals[course.id] || 0;
-
+        <table className="border-collapse text-xs w-full">
+          <thead>
+            <tr>
+              <th className={`sticky left-0 z-10 ${c.cardBg} border-b ${c.divider} p-2 text-left text-xs font-semibold ${c.moduleText} w-32`}>
+                Course
+              </th>
+              {weekDates.map((date, index) => {
+                const dateStr = formatDateLocal(date);
+                const dayTotal = dailyTotals[dateStr] || 0;
                 return (
-                  <tr key={course.id} className={`border-b ${c.divider}`}>
-                    <td className={`sticky left-0 z-10 ${c.cardBg} p-2 font-medium text-xs ${c.moduleText}`}>
-                      <div className="truncate">{course.course_name}</div>
-                      {courseTotal > 0 && (
-                        <div className={`text-[10px] ${c.statText} font-medium mt-0.5`}>
-                          {formatTime(courseTotal)}
-                        </div>
-                      )}
-                    </td>
-                    {weekDates.map((date, dateIndex) => {
-                      const dateStr = formatDateLocal(date);
-                      const dayActivities = activitiesByCourseAndDate[course.id]?.[dateStr] || [];
-
-                      return (
-                        <td
-                          key={dateIndex}
-                          className={`p-1 align-top ${isToday(date) ? 'bg-opacity-5 ' + c.checkboxChecked : ''} border-l ${c.divider}`}
-                          onDragOver={handleDragOver}
-                          onDrop={() => handleDrop(date)}
-                        >
-                          <div className="min-h-[40px] space-y-1">
-                            {dayActivities.slice(0, 3).map(activity => {
-                              const isEvent = activity.activity_type === 'event' || activity.activity_type === 'class';
-
-                              return (
-                                <div
-                                  key={activity.id}
-                                  draggable
-                                  onDragStart={() => handleDragStart(activity)}
-                                  onClick={() => openActivityModal(activity)}
-                                  className={`px-2 py-1.5 rounded text-[11px] border ${c.moduleBorder} ${
-                                    activity.is_completed ? 'opacity-60' : ''
-                                  } ${c.workgroupBg} cursor-pointer hover:shadow-sm transition-shadow`}
-                                >
-                                  <div className="flex gap-1.5 items-start">
-                                    {/* Activity Type Icon */}
-                                    <div className={`${isEvent ? 'bg-blue-100' : 'bg-orange-100'} rounded-sm p-0.5 flex-shrink-0 mt-0.5`}>
-                                      {isEvent ? (
-                                        <div className="border-2 border-blue-500 h-2 rounded-full w-2"></div>
-                                      ) : (
-                                        <div className="bg-orange-500 h-2 w-2"></div>
-                                      )}
-                                    </div>
-
-                                    <div className="flex-1 min-w-0">
-                                      <div className={`font-medium leading-tight line-clamp-2 ${activity.is_completed ? 'line-through text-gray-500' : c.activityText}`}>
-                                        {activity.title}
-                                      </div>
-                                      {activity.estimated_minutes > 0 && (
-                                        <div className={`text-[10px] ${c.mutedText} mt-0.5 flex items-center gap-1`}>
-                                          <Clock className="h-2.5 w-2.5" />
-                                          <span>{formatTime(activity.estimated_minutes)}</span>
-                                          {activity.is_completed && (
-                                            <CheckCircle2 className="flex-shrink-0 h-3 text-green-500 w-3" />
-                                          )}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                            {dayActivities.length > 3 && (
-                              <div className={`text-[10px] ${c.statText} px-2 py-1`}>
-                                +{dayActivities.length - 3} more
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
+                  <th
+                    key={index}
+                    className={`border-b ${c.divider} p-2 text-xs font-semibold ${
+                      isToday(date) ? `${c.checkboxChecked} text-white` : c.moduleText
+                    }`}
+                  >
+                    <div className="whitespace-nowrap">{formatDate(date)}</div>
+                    {dayTotal > 0 && (
+                      <div className={`text-[10px] font-medium mt-0.5 ${isToday(date) ? 'text-white' : c.statText}`}>
+                        {formatTime(dayTotal)}
+                      </div>
+                    )}
+                  </th>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+            </tr>
+          </thead>
+          <tbody>
+            {courses.length === 0 && (
+              <tr>
+                <td colSpan={weekDates.length + 1} className={`p-4 text-center ${c.mutedText} text-sm`}>
+                  No courses with activities this week
+                </td>
+              </tr>
+            )}
+            {courses.map(course => {
+              const courseTotal = courseTotals[course.id] || 0;
+
+              return (
+                <tr key={course.id} className={`border-b ${c.divider}`}>
+                  <td className={`sticky left-0 z-10 ${c.cardBg} p-2 font-medium text-xs ${c.moduleText}`}>
+                    <div className="truncate">{course.course_name}</div>
+                    {courseTotal > 0 && (
+                      <div className={`text-[10px] ${c.statText} font-medium mt-0.5`}>
+                        {formatTime(courseTotal)}
+                      </div>
+                    )}
+                  </td>
+                  {weekDates.map((date, dateIndex) => {
+                    const dateStr = formatDateLocal(date);
+                    const dayActivities = activitiesByCourseAndDate[course.id]?.[dateStr] || [];
+
+                    return (
+                      <td
+                        key={dateIndex}
+                        className={`p-1 align-top ${isToday(date) ? 'bg-opacity-5 ' + c.checkboxChecked : ''} border-l ${c.divider}`}
+                        onDragOver={handleDragOver}
+                        onDrop={() => handleDrop(date)}
+                      >
+                        <div className="min-h-[40px] space-y-1">
+                          {dayActivities.map(activity => {
+                            const isEvent = activity.activity_type === 'event' || activity.activity_type === 'class';
+
+                            return (
+                              <div
+                                key={activity.id}
+                                draggable
+                                onDragStart={() => handleDragStart(activity)}
+                                onClick={() => openActivityModal(activity)}
+                                className={`px-2 py-1.5 rounded text-[11px] border ${c.moduleBorder} ${
+                                  activity.is_completed ? 'opacity-60' : ''
+                                } ${c.workgroupBg} cursor-pointer hover:shadow-sm transition-shadow`}
+                              >
+                                <div className="flex gap-1.5 items-start">
+                                  {/* Activity Type Icon */}
+                                  <div className={`${isEvent ? 'bg-blue-100' : 'bg-orange-100'} rounded-sm p-0.5 flex-shrink-0 mt-0.5`}>
+                                    {isEvent ? (
+                                      <div className="border-2 border-blue-500 h-2 rounded-full w-2"></div>
+                                    ) : (
+                                      <div className="bg-orange-500 h-2 w-2"></div>
+                                    )}
+                                  </div>
+
+                                  <div className="flex-1 min-w-0">
+                                    <div className={`font-medium leading-tight line-clamp-2 ${activity.is_completed ? 'line-through text-gray-500' : c.activityText}`}>
+                                      {activity.title}
+                                    </div>
+                                    {activity.estimated_minutes > 0 && (
+                                      <div className={`text-[10px] ${c.mutedText} mt-0.5 flex items-center gap-1`}>
+                                        <Clock className="h-2.5 w-2.5" />
+                                        <span>{formatTime(activity.estimated_minutes)}</span>
+                                        {activity.is_completed && (
+                                          <CheckCircle2 className="flex-shrink-0 h-3 text-green-500 w-3" />
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
 
       {/* Activity Modal */}
       {isModalOpen && selectedActivity && (
