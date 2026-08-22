@@ -13,7 +13,7 @@ async function canvasFetchAll(url: string, token: string): Promise<any[]> {
   let currentUrl: string | null = url;
 
   while (currentUrl) {
-    const response = await fetch(currentUrl, {
+    const response: Response = await fetch(currentUrl, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Accept': 'application/json'

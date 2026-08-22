@@ -193,8 +193,8 @@ export async function syncMoodleCourse(params: MoodleSyncParams): Promise<void> 
     courseid: course.lms_course_id
   });
 
-  if (!Array.isArray(sections) || sections.exception) {
-    throw new Error(`Failed to fetch course contents from Moodle: ${sections.message || 'Unknown error'}`);
+  if (!Array.isArray(sections) || (sections as any).exception) {
+    throw new Error(`Failed to fetch course contents from Moodle: ${(sections as any).message || 'Unknown error'}`);
   }
 
   const sectionSyncRecords = [];
