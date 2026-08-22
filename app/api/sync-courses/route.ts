@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
             kid_id,
             course_id,
             course_ids,
-            mode,
+            school_year,
             calculate_dates,
             onProgress: (message, data) => {
               sendMessage(message, data);
