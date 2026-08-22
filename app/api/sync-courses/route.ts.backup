@@ -1,0 +1,361 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getServiceRoleClient } from '@/lib/supabase/service';
+
+/**
+ * Unified Course Sync API
+ *
+ * POST /api/sync-courses
+ *
+ * Body:
+ *   - kid_id: number (optional) - Sync all courses for this kid
+ *   - course_id: number (optional) - Sync just this single course
+ *   - course_ids: number[] (optional) - Sync specific courses
+ *   - mode: 'incremental' | 'all' (default: 'incremental')
+ *   - calculate_dates: boolean (default: true) - Whether to calculate plan dates after sync
+ *
+ * Returns: Server-Sent Events stream with progress updates
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { kid_id, course_id, course_ids, mode = 'incremental', calculate_dates = true } = body;
+
+    if (!kid_id && !course_id && !course_ids) {
+      return NextResponse.json(
+        { error: 'Must provide kid_id, course_id, or course_ids' },
+        { status: 400 }
+      );
+    }
+
+    const supabase = getServiceRoleClient();
+
+    // Determine which courses to sync
+    let coursesToSync: any[] = [];
+
+    if (course_id) {
+      // Single course
+      const { data, error } = await supabase
+        .from('courses')
+        .select(`
+          id,
+          course_name,
+          school_id,
+          lms_course_id,
+          source_type,
+          kid_id
+        `)
+        .eq('id', course_id)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) {
+        return NextResponse.json({ error: 'Course not found' }, { status: 404 });
+      }
+      coursesToSync = [data];
+
+    } else if (course_ids && Array.isArray(course_ids)) {
+      // Multiple specific courses
+      const { data, error } = await supabase
+        .from('courses')
+        .select(`
+          id,
+          course_name,
+          school_id,
+          lms_course_id,
+          source_type,
+          kid_id
+        `)
+        .in('id', course_ids);
+
+      if (error) throw error;
+      coursesToSync = data || [];
+
+    } else if (kid_id) {
+      // All courses for a kid with LMS mappings
+      const { data, error } = await supabase
+        .from('courses')
+        .select(`
+          id,
+          course_name,
+          school_id,
+          lms_course_id,
+          source_type,
+          kid_id
+        `)
+        .eq('kid_id', kid_id)
+        .not('lms_course_id', 'is', null);
+
+      if (error) throw error;
+      coursesToSync = data || [];
+    }
+
+    if (coursesToSync.length === 0) {
+      return NextResponse.json({ error: 'No courses found to sync' }, { status: 404 });
+    }
+
+    // Create streaming response
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        const sendMessage = (message: string) => {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ message })}\n\n`));
+        };
+
+        const sendLog = (type: string, message: string, data?: any) => {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type, message, ...data })}\n\n`));
+        };
+
+        try {
+          sendMessage(`🚀 Starting sync for ${coursesToSync.length} course(s) (${mode} mode)\n`);
+
+          let succeeded = 0;
+          let failed = 0;
+          const errors: string[] = [];
+
+          // Group courses by LMS type for better organization
+          const canvasCourses = coursesToSync.filter(c => c.school_id === 1 || c.source_type === 'canvas');
+          const moodleCourses = coursesToSync.filter(c => c.school_id === 2 || c.source_type === 'moodle');
+
+          // Sync Canvas courses
+          if (canvasCourses.length > 0) {
+            sendMessage(`\n📘 Canvas Courses (${canvasCourses.length})\n`);
+
+            for (const course of canvasCourses) {
+              try {
+                sendLog('start', course.course_name, { courseId: course.id });
+
+                // Call Canvas sync API
+                const syncResponse = await fetch(`${request.nextUrl.origin}/api/canvas/sync-modules`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    courseIds: [course.id],
+                    mode
+                  })
+                });
+
+                if (!syncResponse.ok) {
+                  throw new Error(`Canvas sync failed with status ${syncResponse.status}`);
+                }
+
+                // Stream the sync output
+                const reader = syncResponse.body?.getReader();
+                if (reader) {
+                  const decoder = new TextDecoder();
+                  while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                      if (line.startsWith('data: ')) {
+                        try {
+                          const data = JSON.parse(line.slice(6));
+                          if (data.message) {
+                            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+                          }
+                        } catch (e) {
+                          // Ignore parse errors
+                        }
+                      }
+                    }
+                  }
+                }
+
+                // Calculate plan dates if requested
+                if (calculate_dates) {
+                  sendMessage(`\n📅 Calculating plan dates for ${course.course_name}...\n`);
+
+                  const planResponse = await fetch(`${request.nextUrl.origin}/api/calculate-plan-dates`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      courseIds: [course.id],
+                      mode
+                    })
+                  });
+
+                  if (planResponse.ok) {
+                    const planReader = planResponse.body?.getReader();
+                    if (planReader) {
+                      const planDecoder = new TextDecoder();
+                      while (true) {
+                        const { done, value } = await planReader.read();
+                        if (done) break;
+
+                        const chunk = planDecoder.decode(value);
+                        const lines = chunk.split('\n');
+
+                        for (const line of lines) {
+                          if (line.startsWith('data: ')) {
+                            try {
+                              const data = JSON.parse(line.slice(6));
+                              if (data.message) {
+                                controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+                              }
+                            } catch (e) {
+                              // Ignore
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+
+                sendLog('complete', `✅ ${course.course_name} synced`, { courseId: course.id });
+                succeeded++;
+
+              } catch (error: any) {
+                sendLog('error', `❌ ${course.course_name} failed: ${error.message}`, { courseId: course.id });
+                errors.push(`${course.course_name}: ${error.message}`);
+                failed++;
+              }
+            }
+          }
+
+          // Sync Moodle courses
+          if (moodleCourses.length > 0) {
+            sendMessage(`\n📗 Moodle Courses (${moodleCourses.length})\n`);
+
+            for (const course of moodleCourses) {
+              try {
+                sendLog('start', course.course_name, { courseId: course.id });
+
+                // Call Moodle sync API
+                const syncResponse = await fetch(`${request.nextUrl.origin}/api/moodle/sync-modules`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    courseIds: [course.id],
+                    mode
+                  })
+                });
+
+                if (!syncResponse.ok) {
+                  throw new Error(`Moodle sync failed with status ${syncResponse.status}`);
+                }
+
+                // Stream the sync output
+                const reader = syncResponse.body?.getReader();
+                if (reader) {
+                  const decoder = new TextDecoder();
+                  while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                      if (line.startsWith('data: ')) {
+                        try {
+                          const data = JSON.parse(line.slice(6));
+                          if (data.message) {
+                            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+                          }
+                        } catch (e) {
+                          // Ignore
+                        }
+                      }
+                    }
+                  }
+                }
+
+                // Calculate plan dates if requested
+                if (calculate_dates) {
+                  sendMessage(`\n📅 Calculating plan dates for ${course.course_name}...\n`);
+
+                  const planResponse = await fetch(`${request.nextUrl.origin}/api/calculate-plan-dates`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      courseIds: [course.id],
+                      mode
+                    })
+                  });
+
+                  if (planResponse.ok) {
+                    const planReader = planResponse.body?.getReader();
+                    if (planReader) {
+                      const planDecoder = new TextDecoder();
+                      while (true) {
+                        const { done, value } = await planReader.read();
+                        if (done) break;
+
+                        const chunk = planDecoder.decode(value);
+                        const lines = chunk.split('\n');
+
+                        for (const line of lines) {
+                          if (line.startsWith('data: ')) {
+                            try {
+                              const data = JSON.parse(line.slice(6));
+                              if (data.message) {
+                                controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+                              }
+                            } catch (e) {
+                              // Ignore
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+
+                sendLog('complete', `✅ ${course.course_name} synced`, { courseId: course.id });
+                succeeded++;
+
+              } catch (error: any) {
+                sendLog('error', `❌ ${course.course_name} failed: ${error.message}`, { courseId: course.id });
+                errors.push(`${course.course_name}: ${error.message}`);
+                failed++;
+              }
+            }
+          }
+
+          // Final summary
+          sendMessage(`\n${'═'.repeat(60)}\n`);
+          sendMessage(`📊 SYNC SUMMARY\n`);
+          sendMessage(`${'═'.repeat(60)}\n`);
+          sendMessage(`Total: ${coursesToSync.length}\n`);
+          sendMessage(`✅ Succeeded: ${succeeded}\n`);
+          sendMessage(`❌ Failed: ${failed}\n`);
+
+          if (errors.length > 0) {
+            sendMessage(`\nErrors:\n`);
+            errors.forEach(err => sendMessage(`  - ${err}\n`));
+          }
+
+          sendMessage(`${'═'.repeat(60)}\n`);
+          sendMessage(`\n🎉 Sync complete!\n`);
+
+          sendLog('done', 'Sync complete', { succeeded, failed, total: coursesToSync.length });
+
+        } catch (error: any) {
+          sendLog('error', `Fatal error: ${error.message}`);
+          console.error('Sync error:', error);
+        } finally {
+          controller.close();
+        }
+      }
+    });
+
+    return new NextResponse(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
+
+  } catch (error: any) {
+    console.error('API /api/sync-courses POST error:', error);
+    return NextResponse.json(
+      { error: error.message || String(error) },
+      { status: 500 }
+    );
+  }
+}

@@ -33,7 +33,6 @@ export default function SyncCoursesTab({ selectedSchoolYear }: SyncCoursesTabPro
   const [syncing, setSyncing] = useState(false);
   const [calculating, setCalculating] = useState(false);
   const [syncOutput, setSyncOutput] = useState<string>('');
-  const [syncType, setSyncType] = useState<'incremental' | 'all'>('incremental');
   const [editingCourse, setEditingCourse] = useState<number | null>(null);
   const [editValues, setEditValues] = useState<{
     class_days: string;
@@ -118,168 +117,47 @@ export default function SyncCoursesTab({ selectedSchoolYear }: SyncCoursesTabPro
     if (selectedCourses.size === 0) return;
 
     setSyncing(true);
-    setSyncOutput('');
-
-    try {
-      const selectedCoursesData = filteredCourses.filter(c => selectedCourses.has(c.id));
-
-      // Group courses by school_id
-      const coursesBySchool = new Map<number, Course[]>();
-      selectedCoursesData.forEach(course => {
-        if (!coursesBySchool.has(course.school_id)) {
-          coursesBySchool.set(course.school_id, []);
-        }
-        coursesBySchool.get(course.school_id)!.push(course);
-      });
-
-      // Sync each school's courses
-      for (const [schoolId, courses] of coursesBySchool) {
-        const lmsType = schoolId === 1 ? 'canvas' : schoolId === 2 ? 'moodle' : null;
-
-        if (!lmsType) {
-          setSyncOutput(prev => prev + `❌ Unknown school_id ${schoolId} - cannot determine LMS type\n`);
-          continue;
-        }
-
-        setSyncOutput(prev => prev + `🔄 Starting ${lmsType.toUpperCase()} sync (${syncType})...\n\n`);
-
-        for (const course of courses) {
-          if (!course.lms_course_id) {
-            setSyncOutput(prev => prev + `⚠️ Skipping ${course.course_name} - no LMS mapping\n`);
-            continue;
-          }
-
-          const apiEndpoint = lmsType === 'canvas' ? '/api/canvas/sync-modules' : '/api/moodle/sync-modules';
-
-          const response = await fetch(apiEndpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              courseIds: [course.id],
-              mode: syncType
-            })
-          });
-
-          if (!response.ok) {
-            setSyncOutput(prev => prev + `❌ Error syncing ${course.course_name}\n`);
-            continue;
-          }
-
-          const reader = response.body?.getReader();
-          if (!reader) continue;
-
-          const decoder = new TextDecoder();
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const chunk = decoder.decode(value);
-            const lines = chunk.split('\n');
-
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                try {
-                  const data = JSON.parse(line.slice(6));
-                  if (data.message) {
-                    setSyncOutput(prev => prev + data.message);
-                  }
-                  if (data.error) {
-                    setSyncOutput(prev => prev + data.error);
-                  }
-                  if (data.type === 'log' && data.message) {
-                    setSyncOutput(prev => prev + data.message + '\n');
-                  } else if (data.type === 'error' && data.message) {
-                    setSyncOutput(prev => prev + '❌ ' + data.message + '\n');
-                  } else if (data.type === 'start') {
-                    setSyncOutput(prev => prev + `\n📚 Syncing ${data.course}...\n`);
-                  } else if (data.type === 'complete') {
-                    setSyncOutput(prev => prev + `✅ ${data.course} synced\n`);
-                  }
-                } catch (e) {
-                  // Ignore parse errors
-                }
-              }
-            }
-          }
-        }
-      }
-
-      setSyncOutput(prev => prev + '\n✅ Sync complete!\n');
-    } catch (error: any) {
-      setSyncOutput(prev => prev + `\n❌ Error: ${error.message}\n`);
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const handleCalculatePlanDates = async () => {
-    if (selectedCourses.size === 0) return;
-
     setCalculating(true);
     setSyncOutput('');
 
     try {
-      const selectedCoursesData = filteredCourses.filter(c => selectedCourses.has(c.id));
+      const courseIds = Array.from(selectedCourses);
 
-      // Group courses by school_id
-      const coursesBySchool = new Map<number, number[]>();
-      selectedCoursesData.forEach(course => {
-        if (!coursesBySchool.has(course.school_id)) {
-          coursesBySchool.set(course.school_id, []);
-        }
-        coursesBySchool.get(course.school_id)!.push(course.id);
+      const response = await fetch('/api/sync-courses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          course_ids: courseIds,
+          school_year: selectedSchoolYear,
+          calculate_dates: true // Syncs AND calculates dates in one call
+        })
       });
 
-      // Calculate plan dates for each school
-      for (const [schoolId, courseIds] of coursesBySchool) {
-        const lmsType = schoolId === 1 ? 'canvas' : schoolId === 2 ? 'moodle' : null;
+      if (!response.ok) {
+        setSyncOutput(prev => prev + `❌ Error: ${response.statusText}\n`);
+        return;
+      }
 
-        if (!lmsType) {
-          setSyncOutput(prev => prev + `❌ Unknown school_id ${schoolId} - cannot determine LMS type\n`);
-          continue;
-        }
+      const reader = response.body?.getReader();
+      if (!reader) return;
 
-        setSyncOutput(prev => prev + `📅 Calculating ${lmsType.toUpperCase()} plan dates (${syncType})...\n\n`);
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-        const response = await fetch('/api/calculate-plan-dates', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            courseIds: courseIds,
-            mode: syncType
-          })
-        });
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
 
-
-        if (!response.ok) {
-          setSyncOutput(prev => prev + `❌ Error calculating plan dates for ${lmsType}\n`);
-          continue;
-        }
-
-        const reader = response.body?.getReader();
-        if (!reader) continue;
-
-        const decoder = new TextDecoder();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6));
-                if (data.message) {
-                  setSyncOutput(prev => prev + data.message);
-                }
-                if (data.error) {
-                  setSyncOutput(prev => prev + data.error);
-                }
-              } catch (e) {
-                // Ignore parse errors
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.message) {
+                setSyncOutput(prev => prev + data.message);
               }
+            } catch (e) {
+              // Ignore parse errors
             }
           }
         }
@@ -287,6 +165,7 @@ export default function SyncCoursesTab({ selectedSchoolYear }: SyncCoursesTabPro
     } catch (error: any) {
       setSyncOutput(prev => prev + `\n❌ Error: ${error.message}\n`);
     } finally {
+      setSyncing(false);
       setCalculating(false);
     }
   };
@@ -369,31 +248,6 @@ export default function SyncCoursesTab({ selectedSchoolYear }: SyncCoursesTabPro
         </select>
         <div className={`mt-2 text-sm ${c.mutedText}`}>
           LMS Type: <span className="font-medium">{lmsType}</span>
-        </div>
-      </div>
-
-      {/* Sync Type Selection */}
-      <div className="mb-6">
-        <label className={`block text-sm font-medium ${c.moduleText} mb-2`}>Sync Type</label>
-        <div className="flex gap-4">
-          <label className="flex gap-2 items-center">
-            <input
-              type="radio"
-              checked={syncType === 'incremental'}
-              onChange={() => setSyncType('incremental')}
-              className="h-4 w-4"
-            />
-            <span className={`text-sm ${c.moduleText}`}>Incremental (new activities only)</span>
-          </label>
-          <label className="flex gap-2 items-center">
-            <input
-              type="radio"
-              checked={syncType === 'all'}
-              onChange={() => setSyncType('all')}
-              className="h-4 w-4"
-            />
-            <span className={`text-sm ${c.moduleText}`}>All(update all activities)</span>
-          </label>
         </div>
       </div>
 
@@ -536,7 +390,7 @@ export default function SyncCoursesTab({ selectedSchoolYear }: SyncCoursesTabPro
         </div>
       </div>
 
-      {/* Action Buttons */}
+    {/* Action Buttons */}
       <div className="flex gap-3 mb-6">
         <button
           onClick={handleSync}
@@ -548,19 +402,7 @@ export default function SyncCoursesTab({ selectedSchoolYear }: SyncCoursesTabPro
           } text-white rounded-lg`}
         >
           <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
-          {syncing ? 'Syncing...' : 'Sync Activities'}
-        </button>
-        <button
-          onClick={handleCalculatePlanDates}
-          disabled={calculating || selectedCourses.size === 0}
-          className={`flex items-center gap-2 px-4 py-2 ${
-            calculating || selectedCourses.size === 0
-              ? 'bg-gray-300 cursor-not-allowed'
-              : c.checkboxChecked
-          } text-white rounded-lg`}
-        >
-          <Calendar className={`h-4 w-4 ${calculating ? 'animate-spin' : ''}`} />
-          {calculating ? 'Calculating...' : 'Calculate Plan Dates'}
+          {syncing ? 'Syncing & Calculating...' : 'Sync Activities & Calculate Dates'}
         </button>
       </div>
 

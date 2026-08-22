@@ -1,0 +1,25 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="#8b5cf6"/>
+
+  <!-- Calendar outline -->
+  <rect x="96" y="128" width="320" height="288" rx="24" fill="white"/>
+
+  <!-- Calendar header -->
+  <rect x="96" y="128" width="320" height="64" rx="24" fill="#7c3aed"/>
+  <rect x="96" y="168" width="320" height="24" fill="#7c3aed"/>
+
+  <!-- Calendar grid -->
+  <line x1="160" y1="232" x2="160" y2="380" stroke="#d8b4fe" stroke-width="2"/>
+  <line x1="224" y1="232" x2="224" y2="380" stroke="#d8b4fe" stroke-width="2"/>
+  <line x1="288" y1="232" x2="288" y2="380" stroke="#d8b4fe" stroke-width="2"/>
+  <line x1="352" y1="232" x2="352" y2="380" stroke="#d8b4fe" stroke-width="2"/>
+
+  <line x1="128" y1="264" x2="384" y2="264" stroke="#d8b4fe" stroke-width="2"/>
+  <line x1="128" y1="312" x2="384" y2="312" stroke="#d8b4fe" stroke-width="2"/>
+
+  <!-- Checkmarks -->
+  <path d="M 140 290 L 150 300 L 170 275" stroke="#8b5cf6" stroke-width="6" stroke-linecap="round" fill="none"/>
+  <path d="M 204 338 L 214 348 L 234 323" stroke="#8b5cf6" stroke-width="6" stroke-linecap="round" fill="none"/>
+  <path d="M 268 290 L 278 300 L 298 275" stroke="#8b5cf6" stroke-width="6" stroke-linecap="round" fill="none"/>
+</svg>

@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import Auth from '@/components/Auth';
 import MainLayout from '@/components/MainLayout';
+import PWAInstaller from '@/components/PWAInstaller';
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -31,6 +32,7 @@ export default function Home() {
     <AuthProvider>
       <ThemeProvider>
         <AppContent />
+        <PWAInstaller />
       </ThemeProvider>
     </AuthProvider>
   );
