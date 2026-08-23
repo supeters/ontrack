@@ -205,7 +205,14 @@ export default function MainLayout() {
                       : c.sidebarItemText
                   }`}
                 >
-                  <div className="truncate">{course.name}</div>
+                  <div className="truncate">
+                    <div className="font-semibold">{course.name}</div>
+                    <div className={`text-[10px] mt-0.5 ${c.mutedText}`}>
+                      {course.schoolNickname && <span>{course.schoolNickname}</span>}
+                      {course.teacher && <span>{course.schoolNickname ? ' • ' : ''}{course.teacher}</span>}
+                      {course.class_days && <span>{(course.schoolNickname || course.teacher) ? ' • ' : ''}{formatClassDays(course.class_days)}</span>}
+                    </div>
+                  </div>
                 </button>
               ))
             )}

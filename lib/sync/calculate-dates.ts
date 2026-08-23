@@ -55,12 +55,19 @@ export async function calculatePlanDates(params: CalculateDatesParams): Promise<
       // Route to appropriate calculation strategy
       let stats;
       if (course.school_id === 2) {
-        stats = await calculatePositionBased(course, false, supabase, log);
+        stats = await calculatePositionBased(course, true, supabase, log);
       } else {
-        stats = await calculateWeekPatternBased(course, false, supabase, log);
+        stats = await calculateWeekPatternBased(course, true, supabase, log);
       }
 
       log(`   ✅ Modules: ${stats.modulesUpdated}, Assignments: ${stats.assignmentsUpdated}`);
+
+      // Clear plan_dates from non-actionable items
+      log(`   🧹 Clearing plan_dates from non-actionable items...`);
+      const clearedCount = await clearNonActionablePlanDates(courseId, supabase);
+      if (clearedCount > 0) {
+        log(`   ✅ Cleared ${clearedCount} non-actionable items`);
+      }
 
     } catch (error: any) {
       log(`   ❌ Failed: ${error.message}`);
@@ -183,6 +190,32 @@ async function bulkUpdateActivities(updates: any[], supabase: any) {
   }
 }
 
+async function clearNonActionablePlanDates(courseId: number, supabase: any): Promise<number> {
+  // Find all non-module activities with plan_date set but is_action = false
+  // Modules always keep their plan_dates for navigation purposes
+  const { data: nonActionableWithDates } = await supabase
+    .from('activities')
+    .select('id')
+    .eq('course_id', courseId)
+    .neq('activity_type', 'module')
+    .eq('is_action', false)
+    .not('plan_date', 'is', null);
+
+  if (!nonActionableWithDates || nonActionableWithDates.length === 0) {
+    return 0;
+  }
+
+  // Clear their plan_dates
+  for (const activity of nonActionableWithDates) {
+    await supabase
+      .from('activities')
+      .update({ plan_date: null })
+      .eq('id', activity.id);
+  }
+
+  return nonActionableWithDates.length;
+}
+
 /**
  * School ID = 2: Position-based calculation
  */
@@ -255,7 +288,7 @@ async function calculatePositionBased(course: any, incremental: boolean, supabas
       .from('activities')
       .select('id, title, activity_type')
       .eq('parent_activity_id', module.id)
-      .eq('is_action_sync', true);
+      .eq('is_action', true);
 
     if (incremental) {
       assignmentQuery = assignmentQuery.eq('item_needs_processing', true);
@@ -347,7 +380,10 @@ async function calculateWeekPatternBased(course: any, incremental: boolean, supa
     }
 
     // Process children (simplified - defaulting to Friday)
-    const directChildren = allActivities.filter((a: any) => a.parent_activity_id === module.id);
+    // Only process actionable items (is_action = true)
+    const directChildren = allActivities.filter((a: any) =>
+      a.parent_activity_id === module.id && a.is_action === true
+    );
     for (const child of directChildren) {
       if (idsToUpdate.has(child.id)) {
         const fridayDate = addDaysToDate(weekStartDate.year, weekStartDate.month, weekStartDate.day, 5);

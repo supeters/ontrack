@@ -224,9 +224,16 @@ export default function CourseSetupModal({
       <div className={`${c.cardBg} max-w-2xl w-full rounded-lg shadow-xl relative z-[10000] max-h-[90vh] overflow-y-auto`}>
         {/* Header */}
         <div className={`flex items-center justify-between p-6 border-b ${c.divider} sticky top-0 ${c.cardBg} z-10`}>
-          <h3 className={`font-semibold text-lg ${c.moduleText}`}>
-            {existingCourse ? 'Edit Course' : 'Add New Course'}
-          </h3>
+          <div>
+            <h3 className={`font-semibold text-lg ${c.moduleText}`}>
+              {existingCourse ? 'Edit Course' : 'Add New Course'}
+            </h3>
+            {existingCourse && (
+              <div className={`text-xs ${c.mutedText} mt-1`}>
+                Course ID: {existingCourse.id}
+              </div>
+            )}
+          </div>
           <button
             onClick={handleClose}
             className={`${c.mutedText} hover:opacity-70 transition-colors`}
