@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
   BookOpen, Calendar, Settings, LogOut, Palette, ChevronDown, ChevronUp, Home,
-  PanelLeftClose, PanelLeft, Award, Menu, X, LayoutGrid
+  PanelLeftClose, PanelLeft, Award, Menu, X, LayoutGrid, BarChart3
 } from 'lucide-react';
 import CoursesView from './CoursesView';
 import AgendaView from './AgendaView';
@@ -13,6 +13,7 @@ import CalendarView from './CalendarView';
 import SettingsView from './SettingsView';
 import GradesView from './GradesView';
 import PlannerView from './PlannerView';
+import AnalyticsDashboard from './AnalyticsDashboard';
 import { themes } from '@/lib/themes';
 import { formatDateLocal } from '@/lib/datetime';
 
@@ -46,7 +47,7 @@ export default function MainLayout() {
   const { theme, currentTheme, changeTheme } = useTheme();
   
   // Updated type state to include 'planner'
-  const [selectedView, setSelectedView] = useState<'agenda' | 'calendar' | 'planner' | 'courses' | 'settings' | 'grades'>('agenda');
+  const [selectedView, setSelectedView] = useState<'agenda' | 'calendar' | 'planner' | 'courses' | 'settings' | 'grades' | 'analytics'>('agenda');
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [selectedSchoolYear, setSelectedSchoolYear] = useState<string>('');
   
@@ -140,11 +141,12 @@ export default function MainLayout() {
         />
       </div>
 
-      {/* Main Links - Planner added under Calendar */}
+      {/* Main Links - Planner and Analytics added under Calendar */}
       {[
         { id: 'agenda', label: 'Agenda', Icon: Home },
         { id: 'calendar', label: 'Calendar', Icon: Calendar },
         { id: 'planner', label: 'Planner', Icon: LayoutGrid },
+        { id: 'analytics', label: 'Analytics', Icon: BarChart3 },
         { id: 'grades', label: 'Grades', Icon: Award },
       ].map(({ id, label, Icon }) => (
         <button
@@ -404,6 +406,8 @@ export default function MainLayout() {
             <PlannerView kidId={selectedKid.id} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />
           ) : selectedView === 'grades' && selectedKid ? (
             <GradesView kidId={selectedKid.id} selectedCourse={selectedCourse} schoolYear={selectedSchoolYear} />
+          ) : selectedView === 'analytics' && selectedKid ? (
+            <AnalyticsDashboard kidId={selectedKid.id} />
           ) : selectedView === 'settings' ? (
             <SettingsView selectedSchoolYear={selectedSchoolYear} selectedKid={selectedKid} />
           ) : (
@@ -421,6 +425,7 @@ export default function MainLayout() {
           { id: 'agenda', label: 'Agenda', Icon: Home },
           { id: 'calendar', label: 'Calendar', Icon: Calendar },
           { id: 'planner', label: 'Planner', Icon: LayoutGrid },
+          { id: 'analytics', label: 'Analytics', Icon: BarChart3 },
           { id: 'grades', label: 'Grades', Icon: Award },
           { id: 'settings', label: 'Settings', Icon: Settings },
         ].map(({ id, label, Icon }) => (

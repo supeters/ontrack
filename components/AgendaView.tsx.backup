@@ -92,9 +92,6 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
   const [isCourseModalOpen, setIsCourseModalOpen] = useState(false);
   const [isAddActivityModalOpen, setIsAddActivityModalOpen] = useState(false);
 
-  const [todayWorkChunks, setTodayWorkChunks] = useState<any[]>([]);
-  const [isDailySummaryOpen, setIsDailySummaryOpen] = useState(true);
-
   const [isBacklogOpen, setIsBacklogOpen] = useState(false);
   const [backlogGroupBy, setBacklogGroupBy] = useState<'date' | 'course'>('date');
 
@@ -146,7 +143,6 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
               ...e,
               feedName: feed.name,
               is_ical: true,
-
             }))
           )
           .catch(() => [])
@@ -159,12 +155,6 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
 
       setGoogleEvents(googleEventsData);
       setIcalEvents(parsedIcalResults.flat());
-      // Fetch today's work chunks for daily summary
-      const chunksRes = await fetch(`/api/analytics?kidId=${kidId}&startDate=${selectedDateStr}&endDate=${selectedDateStr}`);
-      if (chunksRes.ok) {
-        const chunksData = await chunksRes.json();
-        setTodayWorkChunks(chunksData.chunks || []);
-      }
     } catch (error) {
       console.error('Error loading agenda or iCal data:', error);
     } finally {
@@ -473,32 +463,6 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
     setActiveEventId((prev) => (prev === eventId ? null : eventId));
   };
 
-  // Helper functions for daily summary
-  const getChunkMinutes = (chunk: any): number => {
-    if (chunk.minutes_worked) return chunk.minutes_worked;
-    if (chunk.start_time && chunk.end_time) {
-      const start = new Date(chunk.start_time);
-      const end = new Date(chunk.end_time);
-      return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
-    }
-    return 0;
-  };
-
-  const formatTime = (minutes: number): string => {
-    if (minutes < 60) return `${minutes}m`;
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
-  };
-
-  const todayTotalMinutes = todayWorkChunks.reduce((sum, chunk) => sum + getChunkMinutes(chunk), 0);
-  const todayMoods = todayWorkChunks.filter(c => c.mood).map(c => c.mood);
-  const mostCommonMood = todayMoods.length > 0
-    ? todayMoods.sort((a, b) =>
-        todayMoods.filter(m => m === b).length - todayMoods.filter(m => m === a).length
-      )[0]
-    : null;
-
   if (loading) {
     return (
       <div className={`flex h-full w-full items-center justify-center min-h-[400px] ${c.bg}`}>
@@ -545,58 +509,6 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
           </div>
         </div>
       </div>
-
-
-      {/* Daily Summary Card */}
-      {todayWorkChunks.length > 0 && (
-        <div className="max-w-[1500px] mx-auto px-6 pt-4">
-          <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl overflow-hidden shadow-sm`}>
-            <button
-              onClick={() => setIsDailySummaryOpen(!isDailySummaryOpen)}
-              className={`w-full px-4 py-3 flex items-center justify-between ${c.workgroupBg} hover:opacity-90 transition-opacity`}
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-lg">📊</span>
-                <span className={`text-xs font-bold uppercase tracking-wider ${c.workgroupText}`}>
-                  Today's Progress
-                </span>
-              </div>
-              <div className="flex items-center gap-3">
-                {isDailySummaryOpen && (
-                  <div className="flex items-center gap-4 mr-2">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-xl font-bold ${c.moduleText}`}>{formatTime(todayTotalMinutes)}</span>
-                      <span className={`text-xs ${c.mutedText}`}>worked</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-xl font-bold text-emerald-600`}>{completedActivities.length}</span>
-                      <span className={`text-xs ${c.mutedText}`}>done</span>
-                    </div>
-                    {mostCommonMood && (
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xl">
-                          {mostCommonMood === 'struggled' && '😫'}
-                          {mostCommonMood === 'okay' && '😐'}
-                          {mostCommonMood === 'good' && '🙂'}
-                          {mostCommonMood === 'great' && '😊'}
-                          {mostCommonMood === 'focused' && '🎯'}
-                        </span>
-                        <span className={`text-xs ${c.mutedText} capitalize`}>{mostCommonMood}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {isDailySummaryOpen ? (
-                  <ChevronUp className={`h-4 w-4 ${c.workgroupIcon}`} />
-                ) : (
-                  <ChevronDown className={`h-4 w-4 ${c.workgroupIcon}`} />
-                )}
-              </div>
-            </button>
-          </div>
-        </div>
-      )}
-
 
       {/* Main Board - 12-Column Layout Grid */}
       <div className="flex-1 max-w-[1500px] mx-auto p-6 space-y-6 w-full">

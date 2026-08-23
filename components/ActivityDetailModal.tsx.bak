@@ -71,20 +71,6 @@ function getDisplayMinutes(activity: any): number | null {
   return null;
 }
 
-function getChunkMinutes(chunk: any): number {
-  if (chunk.minutes_worked) {
-    return chunk.minutes_worked;
-  }
-
-  if (chunk.start_time && chunk.end_time) {
-    const start = new Date(chunk.start_time);
-    const end = new Date(chunk.end_time);
-    return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
-  }
-
-  return 0;
-}
-
 export default function ActivityDetailModal({
   activity,
   courses: coursesProp = [],
@@ -119,7 +105,6 @@ export default function ActivityDetailModal({
   });
   const [courses, setCourses] = useState<Course[]>(coursesProp);
 
-  const [workChunks, setWorkChunks] = useState<any[]>([]);
   const actualMinutesRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -149,7 +134,7 @@ export default function ActivityDetailModal({
     setEditedActivity(activity);
     setIsCompleted(activity.is_completed || false);
     setActualMinutes(getDisplayMinutes(activity));
-
+    
     if (activity.daily_checklist) {
       setChecklist(activity.daily_checklist);
     } else if (activity.description) {
@@ -186,24 +171,6 @@ export default function ActivityDetailModal({
     }
   }, [activity.id]);
 
-  useEffect(() => {
-    const loadWorkChunks = async () => {
-      try {
-        const response = await fetch(`/api/work-chunks?activity_id=${activity.id}`);
-        if (response.ok) {
-          const data = await response.json();
-          setWorkChunks(data.chunks || []);
-        }
-      } catch (error) {
-        console.error('Error loading work chunks:', error);
-      }
-    };
-
-    if (activity.id) {
-      loadWorkChunks();
-    }
-  }, [activity.id]);
-
   const filteredCourses = currentAcademicYear
     ? courses.filter((c) => !c.academic_year || c.academic_year === currentAcademicYear)
     : courses;
@@ -215,6 +182,8 @@ export default function ActivityDetailModal({
         description: editedActivity.description,
         course_id: editedActivity.course_id,
         plan_date: editedActivity.plan_date || null,
+        start_time: isCompleted ? (editedActivity.start_time || null) : null,
+        end_time: isCompleted ? (editedActivity.end_time || null) : null,
         estimated_minutes: editedActivity.estimated_minutes || null,
         actual_minutes: isCompleted ? actualMinutes : null,
         is_completed: isCompleted,
@@ -385,7 +354,7 @@ export default function ActivityDetailModal({
 
       <div className="fixed flex inset-y-0 max-w-full pl-10 right-0">
         <div className="bg-white border-gray-200 border-l duration-300 ease-in-out flex flex-col max-w-xl shadow-2xl slide-in-from-right transform transition-transform w-screen">
-
+          
           <div className="bg-gray-50/80 border-b border-gray-100 flex flex-col gap-3 px-6 py-5">
             <div className="flex items-center justify-between">
               <div className="flex gap-2 items-center">
@@ -615,47 +584,24 @@ export default function ActivityDetailModal({
                     {isCompleted ? '✓ Completed' : 'Mark Complete'}
                   </button>
 
-                  {workChunks.length > 0 && (
-                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <label className="block font-bold text-[10px] text-purple-800 tracking-wider uppercase">
-                          ⏱️ Work Sessions ({workChunks.length})
+                  {editedActivity.start_time && !isCompleted && (
+                    <div className="bg-orange-50 border border-orange-200 flex items-center justify-between p-3 rounded-lg">
+                      <div>
+                        <label className="block font-bold text-[10px] text-orange-800 tracking-wider uppercase">
+                          ⏱️ Working Since
                         </label>
-                        <div className="text-xs font-semibold text-purple-900">
-                          Total: {workChunks.reduce((sum, chunk) => sum + getChunkMinutes(chunk), 0)} min
+                        <div className="font-semibold mt-0.5 text-orange-900 text-xs">
+                          {new Date(editedActivity.start_time).toLocaleString()}
                         </div>
                       </div>
-                      <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                        {workChunks.map((chunk, idx) => (
-                          <div key={chunk.id} className="bg-white border border-purple-100 rounded px-2 py-1.5 flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-[10px] text-gray-500">#{idx + 1}</span>
-                              {chunk.mood && (
-                                <span className="text-sm">
-                                  {chunk.mood === 'struggled' && '😫'}
-                                  {chunk.mood === 'okay' && '😐'}
-                                  {chunk.mood === 'good' && '🙂'}
-                                  {chunk.mood === 'great' && '😊'}
-                                  {chunk.mood === 'focused' && '🎯'}
-                                </span>
-                              )}
-                              <span className="font-medium text-gray-700">
-                                {getChunkMinutes(chunk)} min
-                              </span>
-                              {chunk.is_active && (
-                                <span className="bg-green-100 text-green-800 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">
-                                  Active
-                                </span>
-                              )}
-                            </div>
-                            {chunk.notes && (
-                              <span className="text-gray-500 text-[10px] truncate max-w-[120px]" title={chunk.notes}>
-                                "{chunk.notes}"
-                              </span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleFieldChange('start_time', undefined)}
+                        className="bg-orange-200 font-bold hover:bg-orange-300 px-2 py-1 rounded-lg text-orange-900 text-xs transition-colors"
+                        title="Stop/Clear Timer"
+                      >
+                        Clear Timer
+                      </button>
                     </div>
                   )}
 
@@ -665,63 +611,139 @@ export default function ActivityDetailModal({
                       Log & Completion Details
                     </div>
 
-                    <div className="space-y-3">
-                      <div>
-                        <label className="block font-medium mb-1 text-gray-600 text-xs">Completion Date</label>
-                        <div className="flex gap-1">
-                          <input
-                            type="date"
-                            value={completedAt || ''}
-                            onChange={(e) => {
-                              setCompletedAt(e.target.value);
-                              setHasChanges(true);
-                            }}
-                            className="bg-white border border-gray-200 flex-1 focus:ring-2 focus:ring-emerald-500 outline-none px-2.5 py-1.5 rounded-lg text-xs"
-                          />
-                          {completedAt && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setCompletedAt('');
-                                setHasChanges(true);
+                    <div className="gap-3 grid grid-cols-2">
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block font-medium mb-1 text-gray-600 text-xs">Start Time</label>
+                          <div className="flex gap-1">
+                            <input
+                              type="time"
+                              value={
+                                editedActivity.start_time
+                                  ? new Date(editedActivity.start_time).toTimeString().substring(0, 5)
+                                  : ''
+                              }
+                              onChange={(e) => {
+                                if (e.target.value && editedActivity.plan_date) {
+                                  const dateTime = `${editedActivity.plan_date}T${e.target.value}:00`;
+                                  handleFieldChange('start_time', dateTime);
+                                } else if (e.target.value) {
+                                  const today = formatDateLocal(new Date());
+                                  handleFieldChange('start_time', `${today}T${e.target.value}:00`);
+                                } else {
+                                  handleFieldChange('start_time', undefined);
+                                }
                               }}
-                              className="bg-gray-200 font-bold hover:bg-gray-300 px-2 py-1 rounded-lg text-gray-600 text-xs transition-colors"
-                              title="Clear Completion Date"
-                            >
-                              ✕
-                            </button>
-                          )}
+                              className="bg-white border border-gray-200 flex-1 focus:ring-2 focus:ring-blue-500 outline-none px-2.5 py-1.5 rounded-lg text-xs"
+                            />
+                            {editedActivity.start_time && (
+                              <button
+                                type="button"
+                                onClick={() => handleFieldChange('start_time', undefined)}
+                                className="bg-gray-200 font-bold hover:bg-gray-300 px-2 py-1 rounded-lg text-gray-600 text-xs transition-colors"
+                                title="Clear Start Time"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block font-medium mb-1 text-gray-600 text-xs">End Time</label>
+                          <div className="flex gap-1">
+                            <input
+                              type="time"
+                              value={
+                                editedActivity.end_time
+                                  ? new Date(editedActivity.end_time).toTimeString().substring(0, 5)
+                                  : ''
+                              }
+                              onChange={(e) => {
+                                if (e.target.value && (completedAt || editedActivity.plan_date)) {
+                                  const datePart = completedAt || editedActivity.plan_date;
+                                  handleFieldChange('end_time', `${datePart}T${e.target.value}:00`);
+                                } else if (e.target.value) {
+                                  const today = formatDateLocal(new Date());
+                                  handleFieldChange('end_time', `${today}T${e.target.value}:00`);
+                                } else {
+                                  handleFieldChange('end_time', undefined);
+                                }
+                              }}
+                              className="bg-white border border-gray-200 flex-1 focus:ring-2 focus:ring-blue-500 outline-none px-2.5 py-1.5 rounded-lg text-xs"
+                            />
+                            {editedActivity.end_time && (
+                              <button
+                                type="button"
+                                onClick={() => handleFieldChange('end_time', undefined)}
+                                className="bg-gray-200 font-bold hover:bg-gray-300 px-2 py-1 rounded-lg text-gray-600 text-xs transition-colors"
+                                title="Clear End Time"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
 
-                      <div>
-                        <label className="block font-bold mb-1 text-gray-600 text-xs">Actual Mins ⭐</label>
-                        <div className="flex gap-1">
-                          <input
-                            ref={actualMinutesRef}
-                            type="number"
-                            value={actualMinutes ?? ''}
-                            onChange={(e) => {
-                              const val = e.target.value !== '' ? parseInt(e.target.value, 10) : null;
-                              setActualMinutes(val);
-                              setHasChanges(true);
-                            }}
-                            placeholder="0"
-                            className="bg-yellow-50 border-2 border-yellow-400 flex-1 focus:ring-2 focus:ring-yellow-500 font-bold outline-none px-2.5 py-1.5 rounded-lg text-xs"
-                          />
-                          {actualMinutes !== null && actualMinutes !== undefined && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setActualMinutes(null);
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block font-medium mb-1 text-gray-600 text-xs">Completion Date</label>
+                          <div className="flex gap-1">
+                            <input
+                              type="date"
+                              value={completedAt || ''}
+                              onChange={(e) => {
+                                setCompletedAt(e.target.value);
                                 setHasChanges(true);
                               }}
-                              className="bg-gray-200 font-bold hover:bg-gray-300 px-2 py-1 rounded-lg text-gray-600 text-xs transition-colors"
-                              title="Clear Actual Minutes"
-                            >
-                              ✕
-                            </button>
-                          )}
+                              className="bg-white border border-gray-200 flex-1 focus:ring-2 focus:ring-emerald-500 outline-none px-2.5 py-1.5 rounded-lg text-xs"
+                            />
+                            {completedAt && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCompletedAt('');
+                                  setHasChanges(true);
+                                }}
+                                className="bg-gray-200 font-bold hover:bg-gray-300 px-2 py-1 rounded-lg text-gray-600 text-xs transition-colors"
+                                title="Clear Completion Date"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block font-bold mb-1 text-gray-600 text-xs">Actual Mins ⭐</label>
+                          <div className="flex gap-1">
+                            <input
+                              ref={actualMinutesRef}
+                              type="number"
+                              value={actualMinutes ?? ''}
+                              onChange={(e) => {
+                                const val = e.target.value !== '' ? parseInt(e.target.value, 10) : null;
+                                setActualMinutes(val);
+                                setHasChanges(true);
+                              }}
+                              placeholder="0"
+                              className="bg-yellow-50 border-2 border-yellow-400 flex-1 focus:ring-2 focus:ring-yellow-500 font-bold outline-none px-2.5 py-1.5 rounded-lg text-xs"
+                            />
+                            {actualMinutes !== null && actualMinutes !== undefined && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActualMinutes(null);
+                                  setHasChanges(true);
+                                }}
+                                className="bg-gray-200 font-bold hover:bg-gray-300 px-2 py-1 rounded-lg text-gray-600 text-xs transition-colors"
+                                title="Clear Actual Minutes"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>

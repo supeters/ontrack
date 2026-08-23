@@ -1,0 +1,26 @@
+  // Helper functions for daily summary
+  const getChunkMinutes = (chunk: any): number => {
+    if (chunk.minutes_worked) return chunk.minutes_worked;
+    if (chunk.start_time && chunk.end_time) {
+      const start = new Date(chunk.start_time);
+      const end = new Date(chunk.end_time);
+      return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+    }
+    return 0;
+  };
+
+  const formatTime = (minutes: number): string => {
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+  };
+
+  const todayTotalMinutes = todayWorkChunks.reduce((sum, chunk) => sum + getChunkMinutes(chunk), 0);
+  const todayMoods = todayWorkChunks.filter(c => c.mood).map(c => c.mood);
+  const mostCommonMood = todayMoods.length > 0
+    ? todayMoods.sort((a, b) =>
+        todayMoods.filter(m => m === b).length - todayMoods.filter(m => m === a).length
+      )[0]
+    : null;
+
