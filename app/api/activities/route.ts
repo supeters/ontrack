@@ -119,6 +119,7 @@ export async function POST(request: NextRequest) {
       endTime,
       isActionable,
       parentActivityId,
+      resourceUrl,
     } = body;
 
     if (!kidId || !title || !activityType) {
@@ -152,6 +153,7 @@ export async function POST(request: NextRequest) {
         is_completed: false,
         is_deleted: false,
         is_hidden: false,
+        resource_url: resourceUrl,
       })
       .select()
       .single();

@@ -37,8 +37,7 @@ BEGIN
     lms_type,
     activity_type,
     parent_activity_id,
-    module_id,
-    daily_checklist -- <-- ADDED
+    module_id
   INTO existing_record
   FROM activities
   WHERE lms_id = lms_id_val
@@ -47,22 +46,25 @@ BEGIN
 
   IF existing_record.id IS NOT NULL THEN
     -- Activity exists - check if any LMS-provided fields or daily_checklist changed
+    -- Use IS DISTINCT FROM for nullable fields to properly handle JSON null vs SQL NULL
     has_changes :=
-      COALESCE(existing_record.title, '') != COALESCE(sync_data->>'title', '') OR
-      COALESCE(existing_record.description, '') != COALESCE(sync_data->>'description', '') OR
-      COALESCE(existing_record.lms_url, '') != COALESCE(sync_data->>'lms_url', '') OR
-      COALESCE(existing_record.resource_url, '') != COALESCE(sync_data->>'resource_url', '') OR
+      (existing_record.title IS DISTINCT FROM (sync_data->>'title')) OR
+      (existing_record.description IS DISTINCT FROM NULLIF(sync_data->>'description', 'null')) OR
+      (existing_record.lms_url IS DISTINCT FROM NULLIF(sync_data->>'lms_url', 'null')) OR
+      (existing_record.resource_url IS DISTINCT FROM NULLIF(sync_data->>'resource_url', 'null')) OR
       COALESCE(existing_record.position, 0) != COALESCE((sync_data->>'position')::integer, 0) OR
       COALESCE(existing_record.is_action_sync, false) != COALESCE((sync_data->>'is_action_sync')::boolean, false) OR
       COALESCE(existing_record.is_hidden, false) != COALESCE((sync_data->>'is_hidden')::boolean, false) OR
-      COALESCE(existing_record.lms_type, '') != COALESCE(sync_data->>'lms_type', '') OR
-      COALESCE(existing_record.activity_type, '') != COALESCE(sync_data->>'activity_type', '') OR
+      (existing_record.lms_type IS DISTINCT FROM (sync_data->>'lms_type')) OR
+      (existing_record.activity_type IS DISTINCT FROM (sync_data->>'activity_type')) OR
       COALESCE(existing_record.parent_activity_id, 0) != COALESCE((sync_data->>'parent_activity_id')::integer, 0) OR
-      COALESCE(existing_record.module_id, 0) != COALESCE((sync_data->>'module_id')::integer, 0) OR
-      (existing_record.daily_checklist IS DISTINCT FROM (sync_data->'daily_checklist')); -- <-- ADDED JSONB COMPARISON
+      -- Skip module_id comparison for modules (trigger auto-sets to self-reference)
+      (existing_record.activity_type != 'module' AND COALESCE(existing_record.module_id, 0) != COALESCE((sync_data->>'module_id')::integer, 0));
 
     IF has_changes THEN
       -- Data changed - perform safe update (preserves user fields)
+      -- Set item_needs_processing = true to trigger date recalculation
+      sync_data := sync_data || jsonb_build_object('item_needs_processing', true);
       PERFORM safe_sync_activity_update(existing_record.id, sync_data);
 
       activity_id := existing_record.id;
@@ -102,7 +104,6 @@ BEGIN
       parent_activity_id,
       module_id,
       kid_id,
-      daily_checklist, -- <-- ADDED
       lms_synced_at,
       created_at,
       updated_at
@@ -129,7 +130,6 @@ BEGIN
       (sync_data->>'parent_activity_id')::integer,
       (sync_data->>'module_id')::integer,
       (sync_data->>'kid_id')::integer,
-      sync_data->'daily_checklist', -- <-- ADDED
       COALESCE((sync_data->>'lms_synced_at')::timestamp, NOW()),
       NOW(),
       NOW()

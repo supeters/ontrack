@@ -150,10 +150,12 @@ export async function syncCanvasCourse(params: CanvasSyncParams): Promise<void> 
         parent_activity_id: null,
         module_id: null,
         lms_type: 'module',
+        lms_url: null,
+        resource_url: null,
         position: module.position || 0,
         is_action_sync: false,
+        is_hidden: false,
         lms_synced_at: new Date().toISOString(),
-        item_needs_processing: false
       });
       syncedLmsIds.add(moduleLmsId);
 
@@ -215,7 +217,6 @@ export async function syncCanvasCourse(params: CanvasSyncParams): Promise<void> 
             position: item.position || 0,
             is_action_sync: isActionable,
             lms_synced_at: new Date().toISOString(),
-            item_needs_processing: activityType === 'assignment'
           };
 
           // Track this lms_id

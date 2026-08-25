@@ -1,0 +1,62 @@
+◇ injected env (4) from .env.local // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
+🚀 Sync Courses CLI
+════════════════════════════════════════
+Calculate dates: true
+Course ID: 51
+════════════════════════════════════════
+
+🚀 Starting sync for 1 course(s)
+
+📘 Canvas Courses (1)
+Algebra 1
+📚 Course: Algebra 1
+📚 Course: Algebra 1
+📡 Fetching modules from Canvas...
+📡 Fetching modules from Canvas...
+   Found 9 modules
+   Found 9 modules
+📦 Preparing bulk sync data...
+📦 Preparing bulk sync data...
+   📊 Prepared 9 modules, 7 workgroups, 51 assignments
+   📊 Prepared 9 modules, 7 workgroups, 51 assignments
+💾 Step 1: Syncing 9 modules...
+💾 Step 1: Syncing 9 modules...
+   📊 Inserted: 0, Updated: 9, Unchanged: 0
+   📊 Inserted: 0, Updated: 9, Unchanged: 0
+💾 Step 2: Syncing 7 workgroups...
+💾 Step 2: Syncing 7 workgroups...
+   📊 Inserted: 0, Updated: 0, Unchanged: 7
+   📊 Inserted: 0, Updated: 0, Unchanged: 7
+💾 Step 3: Syncing 51 assignments...
+💾 Step 3: Syncing 51 assignments...
+   📊 Inserted: 0, Updated: 0, Unchanged: 51
+   📊 Inserted: 0, Updated: 0, Unchanged: 51
+🗑️  Step 4: Processing deletions...
+🗑️  Step 4: Processing deletions...
+   📊 No items to delete
+   📊 No items to delete
+✅ Canvas sync completed!
+✅ Canvas sync completed!
+
+📅 Calculating plan dates for Algebra 1...
+📅 Calculating plan dates for course 51...
+   Course: Algebra 1
+   School ID: 1
+   Strategy: Week-pattern
+   ✅ Modules: 0, Assignments: 0
+   🧹 Clearing plan_dates from non-actionable items...
+✅ Plan date calculation complete!
+✅ Algebra 1 synced
+
+════════════════════════════════════════════════════════════
+📊 SYNC SUMMARY
+════════════════════════════════════════════════════════════
+Total: 1
+✅ Succeeded: 1
+❌ Failed: 0
+════════════════════════════════════════════════════════════
+
+🎉 Sync complete!
+
+✅ Sync completed!
+Total: 1, Succeeded: 1, Failed: 0

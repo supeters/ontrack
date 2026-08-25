@@ -10,13 +10,14 @@ import {
   ExternalLink,
   FileText,
   CheckCircle2,
-  Scissors,
   BookOpen,
   Play,
-  Zap
+  Zap,
+  Plus,
+  Check
 } from 'lucide-react';
 import { formatDateLocal, formatTimestampLocal, getDateStr, parseLocalTimestamp } from '@/lib/datetime';
-import { parseChecklist, type DailyChecklist } from '@/lib/parseChecklist';
+import { parseChecklistInput } from '@/lib/parseChecklist';
 
 interface Course {
   id: number;
@@ -41,7 +42,6 @@ interface Activity {
   is_action?: boolean;
   start_time?: string;
   end_time?: string;
-  daily_checklist?: any;
   kid_id?: number;
 }
 
@@ -95,21 +95,19 @@ export default function ActivityDetailModal({
 }: ActivityDetailModalProps) {
   const [editedActivity, setEditedActivity] = useState<Activity>(activity);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'details' | 'checklist' | 'tasks'>('details');
-  const [hasSelectedText, setHasSelectedText] = useState(false);
-  const [selectedText, setSelectedText] = useState('');
-  const [showCreateTaskForm, setShowCreateTaskForm] = useState(false);
-  const [newTaskData, setNewTaskData] = useState({
-    title: '',
-    description: '',
-    planDate: activity.plan_date || '',
-    estimatedMinutes: 15,
-  });
+  const [activeTab, setActiveTab] = useState<'details' | 'tasks'>('details');
+  
+  // Bulk Add Modal & Inputs
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkTaskInput, setBulkTaskInput] = useState('');
+  const [bulkPlanDate, setBulkPlanDate] = useState<string>(activity.plan_date || '');
+
   const [children, setChildren] = useState<Activity[]>([]);
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [editingTaskTitle, setEditingTaskTitle] = useState('');
   const [isActionable, setIsActionable] = useState(activity.is_action ?? false);
   const [hasChanges, setHasChanges] = useState(false);
   const [isCompleted, setIsCompleted] = useState(activity.is_completed || false);
-  const [checklist, setChecklist] = useState<DailyChecklist | null>(null);
   const [actualMinutes, setActualMinutes] = useState<number | null>(getDisplayMinutes(activity));
   const [completedAt, setCompletedAt] = useState(() => {
     if (activity.completed_at) {
@@ -118,9 +116,21 @@ export default function ActivityDetailModal({
     return activity.plan_date || formatDateLocal(new Date());
   });
   const [courses, setCourses] = useState<Course[]>(coursesProp);
-
   const [workChunks, setWorkChunks] = useState<any[]>([]);
+
   const actualMinutesRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Filter children so only activity_type === 'task' is handled
+  const taskChildren = children.filter((c) => c.activity_type === 'task');
+
+  // Auto-resize textarea when editing title
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  }, [editingTaskTitle, editingTaskId]);
 
   useEffect(() => {
     const loadCourses = async () => {
@@ -150,15 +160,6 @@ export default function ActivityDetailModal({
     setIsCompleted(activity.is_completed || false);
     setActualMinutes(getDisplayMinutes(activity));
 
-    if (activity.daily_checklist) {
-      setChecklist(activity.daily_checklist);
-    } else if (activity.description) {
-      const parsed = parseChecklist(activity.description);
-      if (parsed) {
-        setChecklist(parsed);
-      }
-    }
-
     if (activity.completed_at) {
       setCompletedAt(getDateStr(activity.completed_at));
     } else {
@@ -168,21 +169,21 @@ export default function ActivityDetailModal({
     setHasChanges(false);
   }, [activity]);
 
-  useEffect(() => {
-    const loadChildren = async () => {
-      try {
-        const response = await fetch(`/api/activities?parent_id=${activity.id}`);
-        if (response.ok) {
-          const data = await response.json();
-          setChildren(data || []);
-        }
-      } catch (error) {
-        console.error('Error loading children:', error);
+  const fetchChildren = async () => {
+    try {
+      const response = await fetch(`/api/activities?parent_id=${activity.id}`);
+      if (response.ok) {
+        const data = await response.json();
+        setChildren(data || []);
       }
-    };
+    } catch (error) {
+      console.error('Error loading children:', error);
+    }
+  };
 
+  useEffect(() => {
     if (activity.id) {
-      loadChildren();
+      fetchChildren();
     }
   }, [activity.id]);
 
@@ -220,7 +221,6 @@ export default function ActivityDetailModal({
         is_completed: isCompleted,
         completed_at: isCompleted ? (completedAt || formatDateLocal(new Date())) : null,
         is_action_override: isActionable,
-        daily_checklist: checklist,
       };
 
       const res = await fetch('/api/activities', {
@@ -246,19 +246,77 @@ export default function ActivityDetailModal({
     }
   };
 
-  const handleChecklistToggle = (key: string) => {
-    if (!checklist) return;
+  const handleBulkAddTasks = async () => {
+    if (!bulkTaskInput.trim()) return;
 
-    const updatedChecklist = {
-      ...checklist,
-      [key]: {
-        ...checklist[key],
-        completed: !checklist[key].completed,
-      },
-    };
+    const parsedItems = parseChecklistInput(bulkTaskInput);
+    if (parsedItems.length === 0) return;
 
-    setChecklist(updatedChecklist);
-    setHasChanges(true);
+    setSaving(true);
+    try {
+      for (const item of parsedItems) {
+        await fetch('/api/activities', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            kidId: activity.kid_id,
+            courseId: editedActivity.course_id,
+            title: item.text,
+            description: '',
+            activityType: 'task',
+            planDate: bulkPlanDate || editedActivity.plan_date || null,
+            estimatedMinutes: 15,
+            isActionable: true,
+            parentActivityId: activity.id,
+          }),
+        });
+      }
+
+      await fetchChildren();
+      setBulkTaskInput('');
+      setShowBulkModal(false);
+      if (onUpdate) onUpdate();
+    } catch (error) {
+      console.error('Error creating bulk tasks:', error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateTaskDate = async (taskId: number, newDate: string) => {
+    try {
+      await fetch('/api/activities', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          activityId: taskId,
+          updates: { plan_date: newDate || null },
+        }),
+      });
+      fetchChildren();
+      if (onUpdate) onUpdate();
+    } catch (error) {
+      console.error('Error updating task plan date:', error);
+    }
+  };
+
+  const updateTaskTitle = async (taskId: number, newTitle: string) => {
+    if (!newTitle.trim()) return;
+    try {
+      await fetch('/api/activities', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          activityId: taskId,
+          updates: { title: newTitle.trim() },
+        }),
+      });
+      setEditingTaskId(null);
+      fetchChildren();
+      if (onUpdate) onUpdate();
+    } catch (error) {
+      console.error('Error updating task title:', error);
+    }
   };
 
   const deleteActivity = async (idToDelete: number) => {
@@ -270,10 +328,7 @@ export default function ActivityDetailModal({
         if (onUpdate) onUpdate();
         onClose();
       } else {
-        const response = await fetch(`/api/activities?parent_id=${activity.id}`);
-        if (response.ok) {
-          setChildren((await response.json()) || []);
-        }
+        await fetchChildren();
         if (onUpdate) onUpdate();
       }
     } catch (error) {
@@ -330,50 +385,6 @@ export default function ActivityDetailModal({
         actualMinutesRef.current?.focus();
         actualMinutesRef.current?.select();
       }, 100);
-    }
-  };
-
-  const createTask = async () => {
-    if (!newTaskData.title.trim()) return;
-
-    setSaving(true);
-    try {
-      const response = await fetch('/api/activities', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          kidId: (activity as any).kid_id,
-          courseId: editedActivity.course_id,
-          title: newTaskData.title,
-          description: newTaskData.description,
-          activityType: 'task',
-          planDate: newTaskData.planDate || null,
-          estimatedMinutes: newTaskData.estimatedMinutes,
-          isActionable: true,
-          parentActivityId: activity.id,
-        }),
-      });
-
-      if (response.ok) {
-        setShowCreateTaskForm(false);
-        setNewTaskData({
-          title: '',
-          description: '',
-          planDate: editedActivity.plan_date || '',
-          estimatedMinutes: 15,
-        });
-        if (onUpdate) onUpdate();
-
-        const childrenResponse = await fetch(`/api/activities?parent_id=${activity.id}`);
-        if (childrenResponse.ok) {
-          const data = await childrenResponse.json();
-          setChildren(data || []);
-        }
-      }
-    } catch (error) {
-      console.error('Error creating task:', error);
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -435,21 +446,6 @@ export default function ActivityDetailModal({
               >
                 Overview & Schedule
               </button>
-              {checklist && Object.keys(checklist).length > 0 && (
-                <button
-                  onClick={() => setActiveTab('checklist')}
-                  className={`py-3 text-sm font-semibold border-b-2 flex items-center gap-1.5 transition-colors ${
-                    activeTab === 'checklist'
-                      ? 'border-blue-600 text-blue-600'
-                      : 'border-transparent text-gray-400 hover:text-gray-700'
-                  }`}
-                >
-                  Checklist
-                  <span className="bg-gray-100 font-bold px-2 py-0.5 rounded-full text-gray-700 text-xs">
-                    {Object.keys(checklist).length}
-                  </span>
-                </button>
-              )}
               <button
                 onClick={() => setActiveTab('tasks')}
                 className={`py-3 text-sm font-semibold border-b-2 flex items-center gap-1.5 transition-colors ${
@@ -458,10 +454,10 @@ export default function ActivityDetailModal({
                     : 'border-transparent text-gray-400 hover:text-gray-700'
                 }`}
               >
-                Sub-tasks
-                {children.length > 0 && (
+                Checklist
+                {taskChildren.length > 0 && (
                   <span className="bg-gray-100 font-bold px-2 py-0.5 rounded-full text-gray-700 text-xs">
-                    {children.length}
+                    {taskChildren.length}
                   </span>
                 )}
               </button>
@@ -616,19 +612,19 @@ export default function ActivityDetailModal({
                   </button>
 
                   {workChunks.length > 0 && (
-                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-2">
+                    <div className="bg-purple-50 border border-purple-200 p-3 rounded-lg space-y-2">
                       <div className="flex items-center justify-between">
                         <label className="block font-bold text-[10px] text-purple-800 tracking-wider uppercase">
                           ⏱️ Work Sessions ({workChunks.length})
                         </label>
-                        <div className="text-xs font-semibold text-purple-900">
+                        <div className="font-semibold text-purple-900 text-xs">
                           Total: {workChunks.reduce((sum, chunk) => sum + getChunkMinutes(chunk), 0)} min
                         </div>
                       </div>
-                      <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                      <div className="max-h-32 overflow-y-auto space-y-1.5">
                         {workChunks.map((chunk, idx) => (
-                          <div key={chunk.id} className="bg-white border border-purple-100 rounded px-2 py-1.5 flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-2">
+                          <div key={chunk.id} className="bg-white border border-purple-100 flex items-center justify-between px-2 py-1.5 rounded text-xs">
+                            <div className="flex gap-2 items-center">
                               <span className="font-mono text-[10px] text-gray-500">#{idx + 1}</span>
                               {chunk.mood && (
                                 <span className="text-sm">
@@ -643,13 +639,13 @@ export default function ActivityDetailModal({
                                 {getChunkMinutes(chunk)} min
                               </span>
                               {chunk.is_active && (
-                                <span className="bg-green-100 text-green-800 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">
+                                <span className="bg-green-100 font-bold px-1.5 py-0.5 rounded text-[10px] text-green-800 uppercase">
                                   Active
                                 </span>
                               )}
                             </div>
                             {chunk.notes && (
-                              <span className="text-gray-500 text-[10px] truncate max-w-[120px]" title={chunk.notes}>
+                              <span className="max-w-[120px] text-[10px] text-gray-500 truncate" title={chunk.notes}>
                                 "{chunk.notes}"
                               </span>
                             )}
@@ -733,98 +729,14 @@ export default function ActivityDetailModal({
                     <label className="font-bold text-[11px] text-gray-400 tracking-wider uppercase">
                       Description & Instructions
                     </label>
-                    {activity.description && (
-                      <button
-                        onClick={() => {
-                          if (selectedText) {
-                            const lines = selectedText.split('\n').filter((l) => l.trim());
-                            setNewTaskData({
-                              title: lines[0]?.trim() || selectedText.substring(0, 50),
-                              description: lines.length > 1 ? lines.slice(1).join('\n').trim() : '',
-                              planDate: editedActivity.plan_date || '',
-                              estimatedMinutes: 15,
-                            });
-                          }
-                          setShowCreateTaskForm(true);
-                        }}
-                        className={`text-xs px-2.5 py-1 rounded-md font-semibold transition-all flex items-center gap-1 ${
-                          hasSelectedText
-                            ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-300'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                        }`}
-                      >
-                        <Scissors className="h-3 w-3" />
-                        {hasSelectedText ? 'Split Highlighted Text' : 'Split into Sub-task'}
-                      </button>
-                    )}
                   </div>
-
-                  {showCreateTaskForm && (
-                    <div className="bg-blue-50/70 border border-blue-200 my-2 p-4 rounded-xl space-y-3">
-                      <div className="flex items-center justify-between">
-                        <h4 className="font-bold text-blue-900 text-xs uppercase">New Sub-task</h4>
-                        <button onClick={() => setShowCreateTaskForm(false)} className="font-semibold hover:text-blue-700 text-blue-500 text-xs">
-                          Cancel
-                        </button>
-                      </div>
-                      <input
-                        type="text"
-                        value={newTaskData.title}
-                        onChange={(e) => setNewTaskData({ ...newTaskData, title: e.target.value })}
-                        className="bg-white border border-blue-200 focus:outline-none px-3 py-1.5 rounded-lg text-xs w-full"
-                        placeholder="Task title..."
-                      />
-                      <textarea
-                        value={newTaskData.description}
-                        onChange={(e) => setNewTaskData({ ...newTaskData, description: e.target.value })}
-                        rows={2}
-                        className="bg-white border border-blue-200 focus:outline-none px-3 py-1.5 rounded-lg text-xs w-full"
-                        placeholder="Task description..."
-                      />
-                      <div className="gap-2 grid grid-cols-2">
-                        <div>
-                          <label className="block font-semibold mb-0.5 text-[11px] text-gray-600">Plan Date</label>
-                          <input
-                            type="date"
-                            value={newTaskData.planDate}
-                            onChange={(e) => setNewTaskData({ ...newTaskData, planDate: e.target.value })}
-                            className="bg-white border border-blue-200 px-2.5 py-1 rounded-lg text-xs w-full"
-                          />
-                        </div>
-                        <div>
-                          <label className="block font-semibold mb-0.5 text-[11px] text-gray-600">Est. Time (Mins)</label>
-                          <input
-                            type="number"
-                            value={newTaskData.estimatedMinutes}
-                            onChange={(e) => setNewTaskData({ ...newTaskData, estimatedMinutes: parseInt(e.target.value) || 0 })}
-                            className="bg-white border border-blue-200 px-2.5 py-1 rounded-lg text-xs w-full"
-                          />
-                        </div>
-                      </div>
-                      <div className="flex justify-end pt-1">
-                        <button
-                          onClick={createTask}
-                          disabled={saving}
-                          className="bg-blue-600 font-semibold hover:bg-blue-700 px-3 py-1.5 rounded-lg shadow-xs text-white text-xs"
-                        >
-                          Create Sub-task
-                        </button>
-                      </div>
-                    </div>
-                  )}
 
                   {activity.description ? (
                     <div className="bg-gray-50/30 border border-gray-100 min-h-[150px] p-4 rounded-xl">
                       <div
-                        className="leading-relaxed max-w-none prose prose-sm select-text text-gray-800"
+                        className="leading-relaxed max-w-none prose prose-sm text-gray-800"
                         dangerouslySetInnerHTML={{ __html: activity.description }}
-                        onMouseUp={() => {
-                          setTimeout(() => {
-                            const text = window.getSelection()?.toString().trim();
-                            setSelectedText(text || '');
-                            setHasSelectedText(Boolean(text));
-                          }, 10);
-                        }}
+                        style={{ userSelect: 'text', WebkitUserSelect: 'text' }}
                       />
                     </div>
                   ) : (
@@ -836,135 +748,143 @@ export default function ActivityDetailModal({
               </>
             )}
 
-            {activeTab === 'checklist' && checklist && (
-              <div className="space-y-4">
-                <div className="bg-blue-50/50 border border-blue-200 p-4 rounded-xl space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-blue-900 text-sm">Weekly Checklist</h3>
-                    <span className="font-medium text-blue-700 text-xs">
-                      {Object.values(checklist).filter((item: any) => item.completed).length} of{' '}
-                      {Object.keys(checklist).length} Completed
-                    </span>
-                  </div>
-
-                  <div className="space-y-3">
-                    {Object.entries(checklist).map(([key, item]: [string, any]) => {
-                      const taskLines = (item.tasks || '')
-                        .split('\n')
-                        .map((line: string) => line.trim())
-                        .filter((line: string) => line.length > 0);
-
-                      return (
-                        <div
-                          key={key}
-                          className={`p-3.5 rounded-xl border transition-all ${
-                            item.completed
-                              ? 'bg-gray-50 border-gray-200 opacity-75'
-                              : 'bg-white border-blue-100 shadow-xs'
-                          }`}
-                        >
-                          <div className="flex gap-3 items-start">
-                            <input
-                              type="checkbox"
-                              checked={item.completed}
-                              onChange={() => handleChecklistToggle(key)}
-                              className="border-gray-300 cursor-pointer focus:ring-blue-500 h-4 mt-1 rounded text-blue-600 w-4"
-                            />
-
-                            <div className="flex-1 min-w-0 space-y-1.5">
-                              <span
-                                className={`inline-block text-xs font-bold px-2 py-0.5 rounded-md ${
-                                  item.completed
-                                    ? 'bg-gray-200 text-gray-600 line-through'
-                                    : 'bg-blue-100 text-blue-800'
-                                }`}
-                              >
-                                {item.label || key}
-                              </span>
-
-                              <ul className="mt-1 pl-1 space-y-1">
-                                {taskLines.map((taskLine: string, idx: number) => (
-                                  <li
-                                    key={idx}
-                                    className={`text-xs leading-relaxed ${
-                                      item.completed
-                                        ? 'line-through text-gray-400'
-                                        : 'text-gray-700'
-                                    }`}
-                                  >
-                                    {taskLines.length > 1 ? `• ${taskLine}` : taskLine}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-
             {activeTab === 'tasks' && (
-              <div className="space-y-3">
-                <div className="font-bold text-gray-400 text-xs tracking-wider uppercase">
-                  Created Sub-tasks
+              <div className="space-y-4">
+                {/* Header row with Add Button */}
+                <div className="flex items-center justify-between">
+                  <div className="font-bold text-gray-400 text-xs tracking-wider uppercase">
+                    Checklist ({taskChildren.length})
+                  </div>
+                  <button
+                    onClick={() => setShowBulkModal(true)}
+                    className="active:scale-95 bg-blue-600 flex font-semibold hover:bg-blue-700 items-center p-2 rounded-full shadow-md text-white transition-all"
+                    title="Add tasks"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
                 </div>
-                {children.length === 0 ? (
-                  <div className="py-8 space-y-2 text-center text-gray-400">
-                    <FileText className="h-6 mx-auto opacity-30 w-6" />
-                    <p className="font-medium text-xs">No sub-tasks yet</p>
+
+                {/* Styled Checklist */}
+                {taskChildren.length === 0 ? (
+                  <div className="border-2 border-dashed border-gray-200 py-12 rounded-2xl space-y-2 text-center text-gray-400">
+                    <FileText className="h-8 mx-auto opacity-30 w-8" />
+                    <p className="font-medium text-xs">No checklist tasks yet</p>
                     <p className="max-w-xs mx-auto text-[11px] text-gray-400">
-                      Use "Make Task" above or highlight text in the overview tab.
+                      Click the + button above to add new tasks to this activity.
                     </p>
                   </div>
                 ) : (
-                  children.map((child) => (
-                    <div key={child.id} className="bg-white border border-gray-100 flex gap-3 group hover:border-gray-200 items-start justify-between p-3 rounded-xl transition-colors">
-                      <div className="flex flex-1 gap-3 items-start min-w-0">
-                        <input
-                          type="checkbox"
-                          checked={child.is_completed}
-                          onChange={async () => {
-                            await fetch('/api/activities', {
-                              method: 'PATCH',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({
-                                activityId: child.id,
-                                updates: { isCompleted: !child.is_completed },
-                              }),
-                            });
-                            const response = await fetch(`/api/activities?parent_id=${activity.id}`);
-                            if (response.ok) {
-                              setChildren((await response.json()) || []);
-                            }
-                          }}
-                          className="focus:ring-0 mt-0.5 rounded text-blue-600"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-xs font-semibold ${child.is_completed ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-                            {child.title}
-                          </p>
-                          {child.description && (
-                            <p className="line-clamp-2 mt-0.5 text-gray-500 text-xs">{child.description}</p>
-                          )}
-                          <div className="flex font-medium gap-3 items-center mt-1 text-[11px] text-gray-400">
-                            {child.plan_date && <span>📅 {child.plan_date}</span>}
-                            {child.estimated_minutes && <span>⏱️ {child.estimated_minutes}m</span>}
+                  <div className="space-y-2">
+                    {taskChildren.map((child) => (
+                      <div
+                        key={child.id}
+                        className={`group border flex items-start justify-between p-3 rounded-xl transition-all gap-3 ${
+                          child.is_completed
+                            ? 'bg-gray-50/70 border-gray-200/80 opacity-75'
+                            : 'bg-white border-gray-200/80 shadow-xs hover:border-blue-300 hover:shadow-sm'
+                        }`}
+                      >
+                        <div className="flex flex-1 gap-3 items-start min-w-0">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await fetch('/api/activities', {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    activityId: child.id,
+                                    updates: { isCompleted: !child.is_completed },
+                                  }),
+                                });
+                                await fetchChildren();
+                                if (onUpdate) onUpdate();
+                              } catch (error) {
+                                console.error('Error toggling task:', error);
+                              }
+                            }}
+                            className={`flex h-5 w-5 items-center justify-center rounded-md transition-all shrink-0 mt-0.5 ${
+                              child.is_completed
+                                ? 'bg-emerald-600 text-white'
+                                : 'border-2 border-gray-300 hover:border-emerald-500'
+                            }`}
+                          >
+                            {child.is_completed && <Check className="h-3.5 stroke-[3] w-3.5" />}
+                          </button>
+
+                          <div className="flex-1 min-w-0">
+                            {editingTaskId === child.id ? (
+                              <textarea
+                                ref={textareaRef}
+                                value={editingTaskTitle}
+                                onChange={(e) => setEditingTaskTitle(e.target.value)}
+                                onBlur={() => updateTaskTitle(child.id, editingTaskTitle)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    updateTaskTitle(child.id, editingTaskTitle);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingTaskId(null);
+                                  }
+                                }}
+                                autoFocus
+                                rows={1}
+                                className="bg-blue-50/50 border border-blue-300 focus:ring-2 focus:ring-blue-500 leading-relaxed outline-none overflow-hidden px-2 py-1 resize-none rounded text-gray-800 text-xs w-full"
+                              />
+                            ) : (
+                              <p
+                                onClick={() => {
+                                  setEditingTaskId(child.id);
+                                  setEditingTaskTitle(child.title);
+                                }}
+                                className={`text-xs font-normal leading-relaxed break-words cursor-pointer hover:bg-gray-100/80 p-1 rounded transition-colors ${
+                                  child.is_completed ? 'line-through text-gray-400' : 'text-gray-700'
+                                }`}
+                                title="Click to edit text"
+                              >
+                                {child.title}
+                              </p>
+                            )}
+                            {child.description && (
+                              <p className="break-words leading-normal mt-1 text-[11px] text-gray-500">{child.description}</p>
+                            )}
                           </div>
                         </div>
-                      </div>
 
-                      <button
-                        onClick={() => deleteActivity(child.id)}
-                        className="group-hover:opacity-100 hover:text-red-600 opacity-0 p-1 text-gray-300 transition-colors"
-                        title="Delete task"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))
+                        {/* Minimal Plan Date Icon & Formatting */}
+                        <div className="flex gap-1.5 items-center pt-0.5 shrink-0">
+                          <div className="flex items-center relative">
+                            <button
+                              type="button"
+                              className="flex gap-1 hover:bg-blue-50 hover:text-blue-600 items-center p-1.5 rounded-lg text-gray-400 transition-colors"
+                              title="Set or change plan date"
+                            >
+                              <Calendar className="h-4 w-4" />
+                              {child.plan_date && (
+                                <span className="font-semibold text-[11px] text-gray-600">
+                                  {child.plan_date.includes('T') ? child.plan_date.split('T')[0] : child.plan_date}
+                                </span>
+                              )}
+                            </button>
+                            <input
+                              type="date"
+                              value={child.plan_date || ''}
+                              onChange={(e) => updateTaskDate(child.id, e.target.value)}
+                              className="absolute cursor-pointer h-full inset-0 opacity-0 w-full"
+                            />
+                          </div>
+
+                          <button
+                            onClick={() => deleteActivity(child.id)}
+                            className="group-hover:opacity-100 hover:text-red-600 opacity-0 p-1 rounded text-gray-300 transition-opacity"
+                            title="Delete task"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             )}
@@ -999,6 +919,69 @@ export default function ActivityDetailModal({
 
         </div>
       </div>
+
+      {/* Add Task Modal */}
+      {showBulkModal && (
+        <div className="animate-in backdrop-blur-xs bg-black/50 duration-150 fade-in fixed flex inset-0 items-center justify-center p-4 z-60">
+          <div className="bg-white border border-gray-100 max-w-lg p-6 rounded-2xl shadow-2xl space-y-4 w-full">
+            <div className="border-b border-gray-100 flex items-center justify-between pb-3">
+              <h3 className="font-bold text-base text-gray-900">Add Checklist Tasks</h3>
+              <button
+                onClick={() => setShowBulkModal(false)}
+                className="hover:text-gray-600 p-1 rounded-full text-gray-400 transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block font-semibold mb-1 text-gray-700 text-xs">
+                  Task List
+                </label>
+                <textarea
+                  value={bulkTaskInput}
+                  onChange={(e) => setBulkTaskInput(e.target.value)}
+                  placeholder={"# Read Chapter 1\n# Write Summary\n# Solve Questions 1-5"}
+                  rows={6}
+                  className="border border-gray-200 focus:ring-2 focus:ring-blue-500 font-mono outline-none p-3 resize-none rounded-xl text-xs w-full"
+                />
+                <p className="mt-1 text-[11px] text-gray-400">
+                  Prefix lines with <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-700">#</code> to define distinct tasks.
+                </p>
+              </div>
+
+              <div>
+                <label className="block font-semibold mb-1 text-gray-700 text-xs">
+                  Plan Date for Created Tasks (Optional)
+                </label>
+                <input
+                  type="date"
+                  value={bulkPlanDate}
+                  onChange={(e) => setBulkPlanDate(e.target.value)}
+                  className="border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none px-3 py-2 rounded-xl text-xs w-full"
+                />
+              </div>
+            </div>
+
+            <div className="border-gray-100 border-t flex gap-2 items-center justify-end pt-2">
+              <button
+                onClick={() => setShowBulkModal(false)}
+                className="font-semibold hover:bg-gray-100 px-4 py-2 rounded-xl text-gray-600 text-xs transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBulkAddTasks}
+                disabled={!bulkTaskInput.trim() || saving}
+                className="bg-blue-600 disabled:bg-gray-300 font-semibold hover:bg-blue-700 px-4 py-2 rounded-xl text-white text-xs transition-colors"
+              >
+                {saving ? 'Adding...' : 'Add Tasks'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

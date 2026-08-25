@@ -17,6 +17,7 @@ import {
   Play,
   Pause,
   Check,
+  BarChart3,
 } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import ActivityDetailModal from './ActivityDetailModal';
@@ -93,7 +94,7 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
   const [isAddActivityModalOpen, setIsAddActivityModalOpen] = useState(false);
 
   const [todayWorkChunks, setTodayWorkChunks] = useState<any[]>([]);
-  const [isDailySummaryOpen, setIsDailySummaryOpen] = useState(true);
+  const [isWorkChunksModalOpen, setIsWorkChunksModalOpen] = useState(false);
 
   const [isBacklogOpen, setIsBacklogOpen] = useState(false);
   const [backlogGroupBy, setBacklogGroupBy] = useState<'date' | 'course'>('date');
@@ -499,6 +500,28 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
       )[0]
     : null;
 
+
+  // Helper function to format time range
+  const formatTimeRange = (startTime: string | null, endTime: string | null): string => {
+    if (!startTime || !endTime) return 'Unknown time';
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    return `${start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} - ${end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+  };
+
+  // Helper function to get mood emoji
+  const getMoodEmoji = (mood: string | null): string => {
+    if (!mood) return '';
+    const moodMap: { [key: string]: string } = {
+      'struggled': '😫',
+      'okay': '😐',
+      'good': '🙂',
+      'great': '😊',
+      'focused': '🎯'
+    };
+    return moodMap[mood] || '';
+  };
+
   if (loading) {
     return (
       <div className={`flex h-full w-full items-center justify-center min-h-[400px] ${c.bg}`}>
@@ -521,6 +544,18 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
             <p className={`font-medium text-xs mt-0.5 ${c.mutedText}`}>{formattedHeaderDate}</p>
           </div>
           <div className="flex gap-2 items-center">
+            {/* Daily Summary Button */}
+            {todayWorkChunks.length > 0 && (
+              <button
+                onClick={() => setIsWorkChunksModalOpen(true)}
+                className={`flex items-center gap-2 px-3 py-1.5 border ${c.moduleBorder} rounded-lg text-xs font-medium ${c.moduleText} ${c.cardBg} ${c.activityHover} transition-all`}
+              >
+                <BarChart3 className={`h-3.5 w-3.5 ${c.moduleIcon}`} />
+                <span>{formatTime(todayTotalMinutes)} worked</span>
+                <span className="text-gray-400">•</span>
+                <span>{completedActivities.length} done</span>
+              </button>
+            )}
             <button
               onClick={() => setIsFeedModalOpen(true)}
               className={`flex items-center gap-1.5 px-3 py-1.5 border ${c.moduleBorder} rounded-lg text-xs font-medium ${c.moduleText} ${c.cardBg} ${c.activityHover} transition-all`}
@@ -547,55 +582,6 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
       </div>
 
 
-      {/* Daily Summary Card */}
-      {todayWorkChunks.length > 0 && (
-        <div className="max-w-[1500px] mx-auto px-6 pt-4">
-          <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl overflow-hidden shadow-sm`}>
-            <button
-              onClick={() => setIsDailySummaryOpen(!isDailySummaryOpen)}
-              className={`w-full px-4 py-3 flex items-center justify-between ${c.workgroupBg} hover:opacity-90 transition-opacity`}
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-lg">📊</span>
-                <span className={`text-xs font-bold uppercase tracking-wider ${c.workgroupText}`}>
-                  Today's Progress
-                </span>
-              </div>
-              <div className="flex items-center gap-3">
-                {isDailySummaryOpen && (
-                  <div className="flex items-center gap-4 mr-2">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-xl font-bold ${c.moduleText}`}>{formatTime(todayTotalMinutes)}</span>
-                      <span className={`text-xs ${c.mutedText}`}>worked</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-xl font-bold text-emerald-600`}>{completedActivities.length}</span>
-                      <span className={`text-xs ${c.mutedText}`}>done</span>
-                    </div>
-                    {mostCommonMood && (
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xl">
-                          {mostCommonMood === 'struggled' && '😫'}
-                          {mostCommonMood === 'okay' && '😐'}
-                          {mostCommonMood === 'good' && '🙂'}
-                          {mostCommonMood === 'great' && '😊'}
-                          {mostCommonMood === 'focused' && '🎯'}
-                        </span>
-                        <span className={`text-xs ${c.mutedText} capitalize`}>{mostCommonMood}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {isDailySummaryOpen ? (
-                  <ChevronUp className={`h-4 w-4 ${c.workgroupIcon}`} />
-                ) : (
-                  <ChevronDown className={`h-4 w-4 ${c.workgroupIcon}`} />
-                )}
-              </div>
-            </button>
-          </div>
-        </div>
-      )}
 
 
       {/* Main Board - 12-Column Layout Grid */}
@@ -1002,6 +988,89 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
           onSave={loadAgendaData}
         />
       )}
+
+      {/* Work Chunks Modal */}
+      {isWorkChunksModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setIsWorkChunksModalOpen(false)}>
+          <div className={`${c.cardBg} rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col`} onClick={(e) => e.stopPropagation()}>
+            {/* Modal Header */}
+            <div className={`px-6 py-4 border-b ${c.divider} flex items-center justify-between`}>
+              <div className="flex items-center gap-2">
+                <BarChart3 className={`h-5 w-5 ${c.moduleIcon}`} />
+                <h2 className={`text-lg font-bold ${c.moduleText}`}>Work Summary</h2>
+              </div>
+              <button
+                onClick={() => setIsWorkChunksModalOpen(false)}
+                className={`p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors`}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto">
+              {/* Summary Stats */}
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                <div className={`${c.cardBg} border ${c.moduleBorder} rounded-lg p-4 text-center`}>
+                  <div className={`text-2xl font-bold ${c.moduleText}`}>{formatTime(todayTotalMinutes)}</div>
+                  <div className={`text-xs ${c.mutedText} mt-1`}>Total Time</div>
+                </div>
+                <div className={`${c.cardBg} border ${c.moduleBorder} rounded-lg p-4 text-center`}>
+                  <div className={`text-2xl font-bold text-emerald-600`}>{completedActivities.length}</div>
+                  <div className={`text-xs ${c.mutedText} mt-1`}>Completed Tasks</div>
+                </div>
+                <div className={`${c.cardBg} border ${c.moduleBorder} rounded-lg p-4 text-center`}>
+                  <div className={`text-2xl font-bold ${c.moduleText}`}>{todayWorkChunks.length}</div>
+                  <div className={`text-xs ${c.mutedText} mt-1`}>Work Sessions</div>
+                </div>
+              </div>
+
+              {/* Work Sessions List */}
+              <div>
+                <h3 className={`text-sm font-bold ${c.moduleText} mb-3`}>Work Sessions</h3>
+                <div className="space-y-3">
+                  {todayWorkChunks.map((chunk) => (
+                    <div
+                      key={chunk.id}
+                      className={`${c.cardBg} border ${c.moduleBorder} rounded-lg p-4`}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <div className={`font-medium ${c.moduleText} text-sm`}>
+                            {chunk.activity_title}
+                          </div>
+                          {chunk.course_name && (
+                            <div className={`text-xs ${c.mutedText} mt-0.5`}>
+                              {chunk.course_name}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {chunk.mood && (
+                            <span className="text-lg">{getMoodEmoji(chunk.mood)}</span>
+                          )}
+                          <span className={`text-sm font-bold ${c.moduleText}`}>
+                            {formatTime(getChunkMinutes(chunk))}
+                          </span>
+                        </div>
+                      </div>
+                      <div className={`text-xs ${c.mutedText}`}>
+                        {formatTimeRange(chunk.start_time, chunk.end_time)}
+                      </div>
+                      {chunk.notes && (
+                        <div className={`mt-2 text-xs ${c.text} bg-gray-50 dark:bg-gray-800 rounded p-2`}>
+                          {chunk.notes}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

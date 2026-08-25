@@ -23,6 +23,7 @@ import ActivityDetailModal from './ActivityDetailModal';
 import CourseSetupModal from './CourseSetupModal';
 import { useTheme } from '@/contexts/ThemeContext';
 import { formatDateLocal } from '@/lib/datetime';
+import CourseActivityEditor from './CourseActivityEditor';
 
 interface CourseModuleViewProps {
   course: any;
@@ -45,38 +46,51 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
 
   // Week navigation
   const [viewMode, setViewMode] = useState<'week' | 'all'>('week');
+  const [editorMode, setEditorMode] = useState<'view' | 'edit'>('view');
   const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
   const [showMoreAssignments, setShowMoreAssignments] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
-  const getCurrentWeekIndex = (weekModulesList: any[], date: Date) => {
-    const targetDate = formatDateLocal(date);
-    let selectedIndex = -1;
-    let closestDate = '';
+const getCurrentWeekIndex = (weekModulesList: any[], date: Date) => {
+  const targetDate = formatDateLocal(date);
 
-    weekModulesList.forEach((module: any, index: number) => {
-      if (module.activity_type !== 'module') return;
+  // 1. Find the earliest scheduled plan_date in the list
+  const datedModules = weekModulesList.filter(
+    (m: any) => m.plan_date && (!m.activity_type || m.activity_type.toLowerCase() === 'module')
+  );
 
-      // If module has no plan_date, it should show when date is before any dated modules
-      if (!module.plan_date) {
-        // Only select if no dated module has been found yet
-        if (selectedIndex === -1) {
-          selectedIndex = index;
-        }
-        return;
+  const earliestDate = datedModules.length > 0
+    ? datedModules.reduce((earliest: string, m: any) => 
+        m.plan_date < earliest ? m.plan_date : earliest, datedModules[0].plan_date
+      )
+    : null;
+
+  // 2. If the selected date is BEFORE the earliest date, find position = 0
+  if (earliestDate && targetDate < earliestDate) {
+    const positionZeroIndex = weekModulesList.findIndex(
+      (m: any) => m.position === 0 && (!m.activity_type || m.activity_type.toLowerCase() === 'module')
+    );
+    return positionZeroIndex >= 0 ? positionZeroIndex : 0;
+  }
+
+  // 3. Otherwise, perform normal matching for on/after course start
+  let selectedIndex = -1;
+  let closestDate = '';
+
+  weekModulesList.forEach((module: any, index: number) => {
+    if (module.activity_type && module.activity_type.toLowerCase() !== 'module') return;
+    if (!module.plan_date) return;
+
+    if (module.plan_date <= targetDate) {
+      if (!closestDate || module.plan_date >= closestDate) {
+        closestDate = module.plan_date;
+        selectedIndex = index;
       }
+    }
+  });
 
-      // Find the most recent module on or before the target date
-      if (module.plan_date <= targetDate) {
-        // Pick this module if it's closer to target than previous selection
-        if (!closestDate || module.plan_date >= closestDate) {
-          closestDate = module.plan_date;
-          selectedIndex = index;
-        }
-      }
-    });
-
-    return selectedIndex >= 0 ? selectedIndex : 0;
-  };
+  return selectedIndex >= 0 ? selectedIndex : 0;
+};
 
   const selectWeekModule = (weekModulesList: any[], index: number) => {
     const normalizedIndex = Math.min(Math.max(index, 0), Math.max(0, weekModulesList.length - 1));
@@ -125,7 +139,7 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
       setAllActivities(activities);
 
       // Filter out "General" section (position 0) for week navigation
-      const weekModulesList = modulesList.filter((m: any) => m.position > 0);
+      const weekModulesList = modulesList.filter((m: any) => m.is_deleted !== true);
       setWeekModules(weekModulesList);
 
       if (weekModulesList.length > 0) {
@@ -228,7 +242,7 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
     return (
       <div className={`py-3 px-4 pl-10 ${c.activityHover} transition-colors border-l-2 ${c.activityBorderHover}`}>
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1">
+          <div className="flex flex-1 gap-3 items-center">
             {/* Checkbox - Only for actionable items */}
             {isActionable ? (
               <button
@@ -241,13 +255,13 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
                 title={activity.is_completed ? 'Mark incomplete' : 'Mark complete'}
               >
                 {activity.is_completed && (
-                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="h-4 text-white w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                   </svg>
                 )}
               </button>
             ) : (
-              <div className="w-6 h-6 flex-shrink-0" />
+              <div className="flex-shrink-0 h-6 w-6" />
             )}
 
             {getActivityIcon(activity.activity_type)}
@@ -268,7 +282,7 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
 
           <div className={`flex items-center gap-3 text-sm ${c.mutedText} ml-4`}>
             {activity.plan_date && (
-              <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-medium">
+              <span className="bg-blue-50 font-medium px-2 py-0.5 rounded text-blue-700 text-xs">
                 {new Date(activity.plan_date + 'T00:00:00').toLocaleDateString()}
               </span>
             )}
@@ -280,8 +294,8 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
             )}
 
             {activity.estimated_minutes && (
-              <div className="flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5" />
+              <div className="flex gap-1 items-center">
+                <Clock className="h-3.5 w-3.5" />
                 <span className="text-xs">{formatTime(activity.estimated_minutes)}</span>
               </div>
             )}
@@ -293,7 +307,7 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex h-full items-center justify-center">
         <div className={`animate-spin rounded-full h-8 w-8 border-b-2 ${c.checkboxChecked.split(' ')[0].replace('bg-', 'border-')}`}></div>
       </div>
     );
@@ -301,7 +315,7 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
 
   if (modules.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex h-full items-center justify-center">
         <div className={`text-center py-20`}>
           <Package className={`w-20 h-20 mx-auto mb-6 opacity-40 ${c.mutedText}`} />
           <p className={`text-lg font-light ${c.activityText}`}>No modules yet</p>
@@ -330,51 +344,24 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
   return (
     <div className={`flex h-full ${c.bg}`}>
       {/* Main Content Area */}
-      <div className="flex-1 p-8 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto p-8">
         {/* Course Header */}
         <div className={`mb-6 pb-4 border-b ${c.divider} flex items-start justify-between`}>
           <div>
             <h1 className={`text-2xl font-semibold ${c.moduleText} mb-1`}>{course.name}</h1>
             <p className={`text-sm ${c.mutedText}`}>{course.school}</p>
           </div>
-          <div className="flex items-center gap-2">
-            {/* View Mode Toggle */}
-            <div className={`flex items-center gap-1 p-1 border ${c.moduleBorder} rounded-lg`}>
-              <button
-                onClick={() => setViewMode('week')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${
-                  viewMode === 'week'
-                    ? `${c.checkboxChecked} text-white`
-                    : `${c.mutedText} hover:bg-stone-100`
-                }`}
-              >
-                <CalendarDays className="w-4 h-4" />
-                Week
-              </button>
-              <button
-                onClick={() => setViewMode('all')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${
-                  viewMode === 'all'
-                    ? `${c.checkboxChecked} text-white`
-                    : `${c.mutedText} hover:bg-stone-100`
-                }`}
-              >
-                <List className="w-4 h-4" />
-                All
-              </button>
-            </div>
-
-            <button
-              onClick={() => setIsCourseEditModalOpen(true)}
-              className={`flex items-center gap-2 px-3 py-2 border ${c.moduleBorder} rounded-lg ${c.moduleText} ${c.activityHover.replace('border-transparent', '')} transition-colors`}
-            >
-              <Edit2 className="w-4 h-4" />
-              Edit
-            </button>
-          </div>
-        </div>
-
-        {/* Week Navigation (only in week view) */}
+          <div className="flex gap-2 items-center">            {/* Editor Mode Toggle */}            <div className={`flex items-center gap-1 p-1 border ${c.moduleBorder} rounded-lg`}>              <button                onClick={() => setEditorMode('view')}                className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${                  editorMode === 'view'                    ? `${c.checkboxChecked} text-white`                    : `${c.mutedText} hover:bg-stone-100`                }`}              >                <List className="h-4 w-4" />                View              </button>              <button                onClick={() => setEditorMode('edit')}                className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${                  editorMode === 'edit'                    ? `${c.checkboxChecked} text-white`                    : `${c.mutedText} hover:bg-stone-100`                }`}              >                <Edit2 className="h-4 w-4" />                Editor              </button>            </div>            {/* View Mode Toggle (only in view mode) */}            {editorMode === 'view' && (              <div className={`flex items-center gap-1 p-1 border ${c.moduleBorder} rounded-lg`}>                <button                  onClick={() => setViewMode('week')}                  className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${                    viewMode === 'week'                      ? `${c.checkboxChecked} text-white`                      : `${c.mutedText} hover:bg-stone-100`                  }`}                >                  <CalendarDays className="h-4 w-4" />                  Week                </button>                <button                  onClick={() => setViewMode('all')}                  className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${                    viewMode === 'all'                      ? `${c.checkboxChecked} text-white`                      : `${c.mutedText} hover:bg-stone-100`                  }`}                >                  <List className="h-4 w-4" />                  All                </button>              </div>            )}            <button              onClick={() => setIsCourseEditModalOpen(true)}              className={`flex items-center gap-2 px-3 py-2 border ${c.moduleBorder} rounded-lg ${c.moduleText} ${c.activityHover.replace('border-transparent', '')} transition-colors`}            >              <Edit2 className="h-4 w-4" />              Edit            </button>          </div>
+        </div>        {/* Conditional Content - Editor or View */}
+        {editorMode === 'edit' ? (
+          <CourseActivityEditor 
+            courseId={course.id} 
+            kidId={kidId}
+            onUpdate={loadModules}
+          />
+        ) : (
+          <>
+        {/* Week Navigation (only in view mode) */}
         {viewMode === 'week' && weekModules.length > 0 && (
           <div className={`mb-6 flex items-center justify-between p-4 border ${c.moduleBorder} rounded-lg ${c.cardBg}`}>
             <button
@@ -392,7 +379,7 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
                   : `${c.moduleText} hover:bg-stone-100`
               }`}
             >
-              <ChevronLeft className="w-5 h-5" />
+              <ChevronLeft className="h-5 w-5" />
               Previous Week
             </button>
 
@@ -427,7 +414,7 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
               }`}
             >
               Next Week
-              <ChevronRight className="w-5 h-5" />
+              <ChevronRight className="h-5 w-5" />
             </button>
           </div>
         )}
@@ -443,13 +430,13 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
               <div className={`w-full flex items-center justify-between p-4 ${c.moduleHeader} transition-colors`}>
                 <button
                   onClick={() => toggleModule(module.id)}
-                  className="flex items-center gap-3 flex-1"
+                  className="flex flex-1 gap-3 items-center"
                 >
                   <Package className={`w-5 h-5 ${c.moduleIcon}`} />
                   <span className={`font-semibold ${c.moduleText}`}>{module.title}</span>
                 </button>
 
-                <div className="flex items-center gap-4">
+                <div className="flex gap-4 items-center">
                   {/* View Details button */}
                   <button
                     onClick={(e) => {
@@ -469,8 +456,8 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
                     {module.stats?.totalTime > 0 && (
                       <>
                         <span className="text-stone-300">•</span>
-                        <div className="flex items-center gap-1.5">
-                          <Clock className="w-4 h-4" />
+                        <div className="flex gap-1.5 items-center">
+                          <Clock className="h-4 w-4" />
                           <span>{formatTime(module.stats.totalTime)}</span>
                         </div>
                       </>
@@ -512,11 +499,11 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
                           onClick={() => toggleWorkgroup(workgroup.id)}
                           className={`w-full flex items-center justify-between py-3 px-4 pl-10 ${c.workgroupHeader} transition-colors`}
                         >
-                          <div className="flex items-center gap-2.5">
+                          <div className="flex gap-2.5 items-center">
                             <Folder className={`w-4 h-4 ${c.workgroupIcon}`} />
                             <span className={`font-medium text-sm ${c.workgroupText}`}>{workgroup.title}</span>
                           </div>
-                          <div className="flex items-center gap-3">
+                          <div className="flex gap-3 items-center">
                             <div className={`flex items-center gap-2.5 text-xs ${c.mutedText}`}>
                               <span className="font-medium">
                                 {workgroup.stats?.completed || 0}/{workgroup.stats?.total || 0}
@@ -566,15 +553,31 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
           );
         })}
       </div>
+          </>
+        )}
       </div>
 
       {/* Sidebar - Upcoming Assignments */}
-      <div className={`w-80 border-l ${c.divider} p-6 overflow-y-auto ${c.cardBg}`}>
-        <h2 className={`text-lg font-semibold ${c.moduleText} mb-4`}>Upcoming Work</h2>
+      <div className={`${isSidebarCollapsed ? 'w-12' : 'w-80'} border-l ${c.divider} overflow-y-auto ${c.cardBg} transition-all duration-300`}>
+        <div className={`${isSidebarCollapsed ? 'p-2' : 'p-6'}`}>
+          <div className="flex items-center justify-between mb-4">
+            {!isSidebarCollapsed && <h2 className={`text-lg font-semibold ${c.moduleText}`}>Upcoming Work</h2>}
+            <button
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              className={`p-1 ${c.mutedText} hover:${c.moduleText} transition-colors`}
+              title={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              {isSidebarCollapsed ? (
+                <ChevronRight className="h-5 w-5" />
+              ) : (
+                <ChevronLeft className="h-5 w-5" />
+              )}
+            </button>
+          </div>
 
-        {upcomingAssignments.length === 0 ? (
+        {!isSidebarCollapsed && (upcomingAssignments.length === 0 ? (
           <div className={`text-center py-8 ${c.mutedText}`}>
-            <CheckCircle2 className="w-12 h-12 mx-auto mb-3 opacity-30" />
+            <CheckCircle2 className="h-12 mb-3 mx-auto opacity-30 w-12" />
             <p className="text-sm">All caught up!</p>
           </div>
         ) : (
@@ -585,7 +588,7 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
                 className={`p-3 border ${c.moduleBorder} rounded-lg ${c.activityHover} transition-colors cursor-pointer`}
                 onClick={() => setSelectedActivity(activity)}
               >
-                <div className="flex items-start gap-2">
+                <div className="flex gap-2 items-start">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -598,7 +601,7 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
                     }`}
                   >
                     {activity.is_completed && (
-                      <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="h-3 text-white w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                       </svg>
                     )}
@@ -609,7 +612,7 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
                     </div>
                     <div className={`text-xs ${c.mutedText}`}>
                       {activity.plan_date && (
-                        <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-medium">
+                        <span className="bg-blue-50 font-medium px-2 py-0.5 rounded text-blue-700">
                           {new Date(activity.plan_date + 'T00:00:00').toLocaleDateString('en-US', {
                             month: 'short',
                             day: 'numeric',
@@ -631,7 +634,8 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
               </button>
             )}
           </div>
-        )}
+        ))}
+        </div>
       </div>
 
       {/* Activity Detail Modal */}

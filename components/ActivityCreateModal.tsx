@@ -42,6 +42,8 @@ export default function ActivityCreateModal({
   // Natural Language Magic Quick-Add State
   const [nlInput, setNlInput] = useState('');
   const [isParsing, setIsParsing] = useState(false);
+  // Checklist State
+  const [checklistItems, setChecklistItems] = useState('');
 
   const activityTypes = [
     'task',
@@ -235,6 +237,31 @@ export default function ActivityCreateModal({
         });
 
         if (response.ok) {
+          const createdActivity = await response.json();
+
+          // Create checklist items if any were entered
+          if (checklistItems.trim()) {
+            const items = checklistItems.split('\n').filter(item => item.trim());
+            if (items.length > 0) {
+              try {
+                await fetch('/api/activities/checklist', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    activityId: createdActivity.id,
+                    items: items.map((text, index) => ({
+                      text: text.trim(),
+                      order: index
+                    }))
+                  }),
+                });
+              } catch (checklistError) {
+                console.error('Error creating checklist items:', checklistError);
+                // Don't fail the whole operation if checklist creation fails
+              }
+            }
+          }
+
           handleClose();
           onSave();
         } else {
@@ -261,6 +288,7 @@ export default function ActivityCreateModal({
     setRecurDays([]);
     setRespectHolidays(true);
     setNlInput('');
+    setChecklistItems('');
     onClose();
   };
 
@@ -536,6 +564,22 @@ export default function ActivityCreateModal({
                 </div>
               </div>
             )}
+            {/* Checklist Items */}
+            <div>
+              <label className={`block text-sm font-medium ${c.moduleText} mb-1`}>
+                Checklist Items (optional)
+              </label>
+              <textarea
+                value={checklistItems}
+                onChange={(e) => setChecklistItems(e.target.value)}
+                className={`w-full px-3 py-2 border ${c.moduleBorder} rounded-lg ${c.moduleText} min-h-[100px]`}
+                placeholder="Enter checklist items, one per line:&#10;Read pages 1-10&#10;Complete exercises&#10;Write summary"
+              />
+              <p className={`text-xs ${c.mutedText} mt-1`}>
+                Enter one item per line. Each will become a checkable task.
+              </p>
+            </div>
+
 
             {/* Form Buttons */}
             <div className="flex gap-2 pt-4">

@@ -125,7 +125,7 @@ export default function MainLayout() {
   const NavigationItems = () => (
     <div className="space-y-3">
       {/* Date Selector */}
-      <div className={`rounded-lg border ${c.sidebarBorder} ${c.sidebarBg} p-3 space-y-2`}>
+      <div className={`rounded-lg border ${c.sidebarBorder} ${c.sidebarBg} p-3 space-y-2 relative z-50`}>
         {(!isSidebarCollapsed || isMobileMenuOpen) && (
           <div className={`text-xs font-semibold ${c.moduleText}`}>Selected Date</div>
         )}
@@ -137,6 +137,8 @@ export default function MainLayout() {
               setSelectedDate(new Date(e.target.value + 'T12:00:00'));
             }
           }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onFocus={(e) => e.stopPropagation()}
           className={`w-full px-2 py-2 text-xs border ${c.sidebarBorder} rounded-lg ${c.sidebarItemBg} ${c.moduleText}`}
         />
       </div>

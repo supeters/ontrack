@@ -1,85 +1,67 @@
 /**
- * Parse daily checklist from activity description
- * Supports patterns like:
- * - "Day 1:", "Day 2:", etc.
- * - "Monday", "Tuesday", etc.
+ * Parse checklist items from user input
+ * Each line beginning with # becomes a separate checklist item
+ *
+ * Example input:
+ * # read xyz
+ * book of odyssey
+ *
+ * # memorize poem
+ * write a essay
+ *
+ * Becomes 2 items: "read xyz book of odyssey" and "memorize poem write a essay"
  */
 
 export interface ChecklistItem {
-  label: string;
-  tasks: string;
-  completed: boolean;
-}
-
-export type DailyChecklist = Record<string, ChecklistItem>;
-
-/**
- * Parse description text for daily patterns
- */
-export function parseChecklist(description: string): DailyChecklist | null {
-  if (!description) return null;
-
-  // Remove HTML tags for parsing
-  const plainText = description.replace(/<[^>]*>/g, '\n').trim();
-
-  // Try "Day X:" pattern first
-  // Replace line 26 in lib/parseChecklist.ts with this:
-  const dayNumberPattern = /Day\s+(\d+)[:\-\s]+((?:(?!Day\s+\d+)[\s\S])+)/gi;
-  const dayMatches = [...plainText.matchAll(dayNumberPattern)];
-
-  if (dayMatches.length > 0) {
-    const checklist: DailyChecklist = {};
-    dayMatches.forEach((match) => {
-      const dayNum = match[1];
-      const tasks = match[2].trim();
-      checklist[`day${dayNum}`] = {
-        label: `Day ${dayNum}`,
-        tasks,
-        completed: false
-      };
-    });
-    return checklist;
-  }
-
-  // Try weekday pattern: Monday, Tuesday, etc.
-// Replace line 45 with this:
-  const weekdayPattern = /(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)[:\-\s]+((?:(?!(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday))[\s\S])+)/gi;
-  const weekdayMatches = [...plainText.matchAll(weekdayPattern)];
-
-  if (weekdayMatches.length > 0) {
-    const checklist: DailyChecklist = {};
-    weekdayMatches.forEach((match, index) => {
-      const weekday = match[1];
-      const tasks = match[2].trim();
-      checklist[`day${index + 1}`] = {
-        label: weekday,
-        tasks,
-        completed: false
-      };
-    });
-    return checklist;
-  }
-
-  return null;
+  text: string;
+  order: number;
+  is_completed: boolean;
 }
 
 /**
- * Merge existing checklist completion state with newly parsed checklist
+ * Parse checklist from user input text
+ * Lines starting with # begin new items
+ * Subsequent lines without # are appended to the current item
  */
-export function mergeChecklistState(
-  existingChecklist: DailyChecklist | null,
-  newlyParsed: DailyChecklist | null
-): DailyChecklist | null {
-  if (!newlyParsed) return existingChecklist;
-  if (!existingChecklist) return newlyParsed;
+export function parseChecklistInput(input: string): ChecklistItem[] {
+  if (!input || !input.trim()) return [];
 
-  // Preserve completion state from existing checklist
-  const merged: DailyChecklist = { ...newlyParsed };
-  Object.keys(merged).forEach((key) => {
-    if (existingChecklist[key]?.completed) {
-      merged[key].completed = true;
+  const lines = input.split('\n');
+  const items: ChecklistItem[] = [];
+  let currentItem: string | null = null;
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+
+    if (!trimmedLine) continue; // Skip empty lines
+
+    if (trimmedLine.startsWith('#')) {
+      // New checklist item - save previous if exists
+      if (currentItem !== null) {
+        items.push({
+          text: currentItem.trim(),
+          order: items.length,
+          is_completed: false
+        });
+      }
+
+      // Start new item (remove leading # and whitespace)
+      currentItem = trimmedLine.substring(1).trim();
+    } else if (currentItem !== null) {
+      // Continuation of current item
+      currentItem += ' ' + trimmedLine;
     }
-  });
+    // If line doesn't start with # and no current item, ignore it
+  }
 
-  return merged;
+  // Don't forget the last item
+  if (currentItem !== null) {
+    items.push({
+      text: currentItem.trim(),
+      order: items.length,
+      is_completed: false
+    });
+  }
+
+  return items;
 }

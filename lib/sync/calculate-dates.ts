@@ -17,13 +17,11 @@ export async function calculatePlanDates(params: CalculateDatesParams): Promise<
     }
   };
 
-
   const supabase = getServiceRoleClient();
 
   for (const courseId of courseIds) {
     try {
       log(`📅 Calculating plan dates for course ${courseId}...`);
-
 
       // Get course with calendar
       const { data: course, error: courseError } = await supabase
@@ -55,12 +53,12 @@ export async function calculatePlanDates(params: CalculateDatesParams): Promise<
       // Route to appropriate calculation strategy
       let stats;
       if (course.school_id === 2) {
-        stats = await calculatePositionBased(course, true, supabase, log);
+        stats = await calculatePositionBased(course, supabase, log);
       } else {
-        stats = await calculateWeekPatternBased(course, true, supabase, log);
+        stats = await calculateWeekPatternBased(course, supabase, log);
       }
 
-      log(`   ✅ Modules: ${stats.modulesUpdated}, Assignments: ${stats.assignmentsUpdated}`);
+      log(`   ✅ Modules: ${stats.modulesUpdated}, Assignments: ${stats.assignmentsUpdated}${stats.pinnedSkipped ? `, Pinned: ${stats.pinnedSkipped}` : ''}`);
 
       // Clear plan_dates from non-actionable items
       log(`   🧹 Clearing plan_dates from non-actionable items...`);
@@ -110,11 +108,6 @@ function findNextWeekday(date: Date, targetWeekday: number): Date {
     if (result.getDay() === 6) result.setDate(result.getDate() + 2);
   }
   return result;
-}
-
-function getDayName(dayNum: number): string {
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  return days[dayNum];
 }
 
 function addDaysToDate(year: number, month: number, day: number, daysToAdd: number) {
@@ -191,8 +184,6 @@ async function bulkUpdateActivities(updates: any[], supabase: any) {
 }
 
 async function clearNonActionablePlanDates(courseId: number, supabase: any): Promise<number> {
-  // Find all non-module activities with plan_date set but is_action = false
-  // Modules always keep their plan_dates for navigation purposes
   const { data: nonActionableWithDates } = await supabase
     .from('activities')
     .select('id')
@@ -205,7 +196,6 @@ async function clearNonActionablePlanDates(courseId: number, supabase: any): Pro
     return 0;
   }
 
-  // Clear their plan_dates
   for (const activity of nonActionableWithDates) {
     await supabase
       .from('activities')
@@ -219,7 +209,7 @@ async function clearNonActionablePlanDates(courseId: number, supabase: any): Pro
 /**
  * School ID = 2: Position-based calculation
  */
-async function calculatePositionBased(course: any, incremental: boolean, supabase: any, log: (msg: string) => void) {
+async function calculatePositionBased(course: any, supabase: any, log: (msg: string) => void) {
   const calendar = course.school_calendars;
   const classDays = course.class_days.split('').map((d: string) => parseInt(d));
   const primaryClassDay = classDays[0];
@@ -227,83 +217,122 @@ async function calculatePositionBased(course: any, incremental: boolean, supabas
 
   const firstClassDay = findFirstWeekday(calendar.start_date, primaryClassDay);
 
-  let moduleQuery = supabase
+  // Fetch ALL modules in position order to calculate the true sequential timeline
+  const { data: modules, error: modulesError } = await supabase
     .from('activities')
-    .select('id, title, position, lms_id')
+    .select('id, title, position, lms_id, is_hidden, is_pinned, item_needs_processing')
     .eq('course_id', course.id)
     .eq('activity_type', 'module')
     .order('position');
 
-  if (incremental) {
-    moduleQuery = moduleQuery.eq('item_needs_processing', true);
-  }
-
-  const { data: modules, error: modulesError } = await moduleQuery;
-
   if (modulesError) throw modulesError;
 
   const updates = [];
-  let stats = { modulesUpdated: 0, assignmentsUpdated: 0 };
+  let stats = { modulesUpdated: 0, assignmentsUpdated: 0, hiddenSkipped: 0, pinnedSkipped: 0 };
+  let visibleWeekNumber = 0;
 
   for (const module of modules) {
+    // ----------------------------------------------------
+    // POSITION 0: General Section (No plan date, no week increment)
+    // ----------------------------------------------------
     if (module.position === 0) {
-      const generalPlanDate = formatDateLocal(parseLocalDate(calendar.start_date));
-      updates.push({ id: module.id, plan_date: generalPlanDate });
-      stats.modulesUpdated++;
-
-      let itemQuery = supabase
-        .from('activities')
-        .select('id, title, activity_type')
-        .eq('parent_activity_id', module.id);
-
-      if (incremental) {
-        itemQuery = itemQuery.eq('item_needs_processing', true);
+      if (module.item_needs_processing) {
+        updates.push({ id: module.id, plan_date: null });
+        stats.modulesUpdated++;
       }
 
-      const { data: generalItems } = await itemQuery;
+      const { data: generalItems } = await supabase
+        .from('activities')
+        .select('id, is_pinned, item_needs_processing')
+        .eq('parent_activity_id', module.id);
 
       if (generalItems && generalItems.length > 0) {
         generalItems.forEach((item: any) => {
-          updates.push({ id: item.id, plan_date: null });
+          if (item.item_needs_processing) {
+            updates.push({ id: item.id, plan_date: null });
+            stats.assignmentsUpdated++;
+          }
         });
-        stats.assignmentsUpdated += generalItems.length;
       }
       continue;
     }
 
-    const weekNumber = module.position;
+    // ----------------------------------------------------
+    // PINNED OR HIDDEN MODULES: Skip week slot, force plan_date = null
+    // ----------------------------------------------------
+    if (module.is_pinned ) {
+      if (module.is_pinned) stats.pinnedSkipped++;
+      if (module.is_hidden) stats.hiddenSkipped++;
+
+      // Set module plan_date to null ONLY if it needs processing
+      if (module.item_needs_processing) {
+        updates.push({ id: module.id, plan_date: null });
+        stats.modulesUpdated++;
+      }
+
+      // Clear dates for child assignments of pinned/hidden modules
+      const { data: childItems } = await supabase
+        .from('activities')
+        .select('id, item_needs_processing')
+        .eq('parent_activity_id', module.id);
+
+      if (childItems && childItems.length > 0) {
+        childItems.forEach((item: any) => {
+          if (item.item_needs_processing) {
+            updates.push({ id: item.id, plan_date: null });
+            stats.assignmentsUpdated++;
+          }
+        });
+      }
+      
+      // DO NOT increment visibleWeekNumber! Next unpinned module gets this week.
+      continue;
+    }
+
+    // ----------------------------------------------------
+    // ACTIVE UNPINNED MODULES: Advance week & calculate dates
+    // ----------------------------------------------------
+    visibleWeekNumber++; // 1 for first active module, 2 for second, etc.
+
     const weekStart = new Date(firstClassDay);
-    weekStart.setDate(weekStart.getDate() + (weekNumber - 1) * 7);
+    weekStart.setDate(weekStart.getDate() + (visibleWeekNumber - 1) * 7);
 
     const moduleDate = findNextWeekday(weekStart, primaryClassDay);
     const modulePlanDate = formatDateLocal(moduleDate);
 
-    updates.push({ id: module.id, plan_date: modulePlanDate });
-    stats.modulesUpdated++;
+    // Only queue update if item_needs_processing is true
+    if (module.item_needs_processing) {
+      updates.push({ id: module.id, plan_date: modulePlanDate });
+      stats.modulesUpdated++;
+    }
 
+    // Process child assignments for active week
     const assignmentDate = findNextWeekday(weekStart, workDay);
     const assignmentPlanDate = formatDateLocal(assignmentDate);
 
-    let assignmentQuery = supabase
+    const { data: assignments } = await supabase
       .from('activities')
-      .select('id, title, activity_type')
+      .select('id, title, activity_type, is_pinned, item_needs_processing')
       .eq('parent_activity_id', module.id)
       .eq('is_action', true);
 
-    if (incremental) {
-      assignmentQuery = assignmentQuery.eq('item_needs_processing', true);
-    }
-
-    const { data: assignments } = await assignmentQuery;
-
     if (assignments && assignments.length > 0) {
       assignments.forEach((a: any) => {
-        updates.push({ id: a.id, plan_date: assignmentPlanDate });
+        // If an individual assignment is pinned inside an active module, ignore/clear it
+        if (a.is_pinned) {
+          if (a.item_needs_processing) {
+            updates.push({ id: a.id, plan_date: null });
+            stats.assignmentsUpdated++;
+          }
+        } else if (a.item_needs_processing) {
+          updates.push({ id: a.id, plan_date: assignmentPlanDate });
+          stats.assignmentsUpdated++;
+        }
       });
-      stats.assignmentsUpdated += assignments.length;
     }
   }
 
+  // Execute database batch updates only for collected items
   await bulkUpdateActivities(updates, supabase);
 
   return stats;
@@ -311,11 +340,9 @@ async function calculatePositionBased(course: any, incremental: boolean, supabas
 
 /**
  * School ID = 1: Week-pattern-based calculation
- * (Simplified version - full implementation would include all workgroup pattern logic)
  */
-async function calculateWeekPatternBased(course: any, incremental: boolean, supabase: any, log: (msg: string) => void) {
+async function calculateWeekPatternBased(course: any, supabase: any, log: (msg: string) => void) {
   const calendar = course.school_calendars;
-  const holidays = calendar.holidays || [];
 
   const { data: allActivities, error: allActivitiesError } = await supabase
     .from('activities')
@@ -323,12 +350,6 @@ async function calculateWeekPatternBased(course: any, incremental: boolean, supa
     .eq('course_id', course.id);
 
   if (allActivitiesError) throw allActivitiesError;
-
-  const activitiesToUpdate = incremental
-    ? allActivities.filter((a: any) => a.item_needs_processing === true)
-    : allActivities;
-
-  const idsToUpdate = new Set(activitiesToUpdate.map((a: any) => a.id));
 
   const allModules = allActivities
     .filter((a: any) => a.activity_type === 'module')
@@ -365,7 +386,6 @@ async function calculateWeekPatternBased(course: any, incremental: boolean, supa
     const weekNumber = parseInt(match[1]);
     const weeksFromWeek1 = weekNumber - 1;
 
-    // Calculate week start (simplified - not accounting for holidays)
     const weekStartDate = addDaysToDate(
       week1StartDate.year,
       week1StartDate.month,
@@ -374,18 +394,17 @@ async function calculateWeekPatternBased(course: any, incremental: boolean, supa
     );
     const weekSundayDate = formatDateString(weekStartDate);
 
-    if (idsToUpdate.has(module.id)) {
+    if (!module.is_pinned && module.item_needs_processing) {
       updates.push({ id: module.id, plan_date: weekSundayDate, is_action_sync: false });
       modulesUpdatedCount++;
     }
 
-    // Process children (simplified - defaulting to Friday)
-    // Only process actionable items (is_action = true)
+    // Process children
     const directChildren = allActivities.filter((a: any) =>
       a.parent_activity_id === module.id && a.is_action === true
     );
     for (const child of directChildren) {
-      if (idsToUpdate.has(child.id)) {
+      if (!child.is_pinned && child.item_needs_processing) {
         const fridayDate = addDaysToDate(weekStartDate.year, weekStartDate.month, weekStartDate.day, 5);
         const planDate = formatDateString(fridayDate);
         updates.push({ id: child.id, plan_date: planDate });

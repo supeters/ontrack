@@ -42,63 +42,10 @@ function sanitizeDescriptionHtml(rawHtml: string | null): string | null {
 }
 
 /**
- * Parse daily checklist from section summary/description
+ * REMOVED: Checklist parsing from sync
+ * Checklist is now user-managed only via the modal UI
+ * Sync will never create or update checklist data
  */
-function parseChecklist(description: string | null): any {
-  if (!description) return null;
-
-  const cleanText = description
-    .replace(/<br\s*[\/]?>/gi, '\n')
-    .replace(/<\/(p|li|div|h[1-6])>/gi, '\n')
-    .replace(/<(p|li|div|ul|ol|h[1-6])[^>]*>/gi, '\n')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/<[^>]*>/g, '')
-    .trim();
-
-  // Day number pattern
-  const dayNumberPattern = /Day\s+(\d+)[:\s\u2010-\u2015\-]*((?:(?!Day\s+\d+).)+)/gis;
-  const dayMatches = [...cleanText.matchAll(dayNumberPattern)];
-
-  if (dayMatches.length > 0) {
-    const checklist: any = {};
-    dayMatches.forEach((match) => {
-      const dayNum = match[1];
-      const tasks = sanitizeTaskText(match[2]);
-
-      if (tasks) {
-        checklist[`day${dayNum}`] = {
-          label: `Day ${dayNum}`,
-          tasks,
-          completed: false
-        };
-      }
-    });
-    return Object.keys(checklist).length > 0 ? checklist : null;
-  }
-
-  // Weekday pattern
-  const weekdayPattern = /(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)[:\s\u2010-\u2015\-]*((?:(?!(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)).)+)/gis;
-  const weekdayMatches = [...cleanText.matchAll(weekdayPattern)];
-
-  if (weekdayMatches.length > 0) {
-    const checklist: any = {};
-    weekdayMatches.forEach((match, index) => {
-      const weekday = match[1];
-      const tasks = sanitizeTaskText(match[2]);
-
-      if (tasks) {
-        checklist[`day${index + 1}`] = {
-          label: weekday,
-          tasks,
-          completed: false
-        };
-      }
-    });
-    return Object.keys(checklist).length > 0 ? checklist : null;
-  }
-
-  return null;
-}
 
 /**
  * Map Moodle module type to activity type
@@ -199,7 +146,6 @@ export async function syncMoodleCourse(params: MoodleSyncParams): Promise<void> 
 
   const sectionSyncRecords = [];
   const itemSyncRecords = [];
-  let parsedChecklistsCount = 0;
   // Track all lms_id values we sync (for deletion detection)
   const syncedLmsIds = new Set<string>();
 
@@ -208,11 +154,6 @@ export async function syncMoodleCourse(params: MoodleSyncParams): Promise<void> 
   for (const section of sections) {
     const sectionLmsId = section.id.toString();
     const isSection0 = section.section === 0;
-    const dailyChecklist = !isSection0 ? parseChecklist(section.summary) : null;
-
-    if (dailyChecklist) {
-      parsedChecklistsCount++;
-    }
 
     // Section Record (Module)
     sectionSyncRecords.push({
@@ -229,7 +170,6 @@ export async function syncMoodleCourse(params: MoodleSyncParams): Promise<void> 
       position: section.section || 0,
       is_hidden: section.visible === 0,
       is_action_sync: !isSection0,
-      daily_checklist: dailyChecklist,
       lms_synced_at: new Date().toISOString(),
       item_needs_processing: !isSection0
     });
@@ -272,7 +212,6 @@ export async function syncMoodleCourse(params: MoodleSyncParams): Promise<void> 
   }
 
   log(`📦 Prepared ${sectionSyncRecords.length} sections and ${itemSyncRecords.length} items`);
-  log(`📋 Extracted checklists from ${parsedChecklistsCount} sections`);
 
   // STEP 1: Bulk Upsert Sections
   log(`💾 Step 1: Bulk upserting ${sectionSyncRecords.length} sections...`);
