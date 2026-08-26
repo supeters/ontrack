@@ -58,8 +58,7 @@ export async function calculatePlanDates(params: CalculateDatesParams): Promise<
         stats = await calculateWeekPatternBased(course, supabase, log);
       }
 
-      log(`   ✅ Modules: ${stats.modulesUpdated}, Assignments: ${stats.assignmentsUpdated}${stats.pinnedSkipped ? `, Pinned: ${stats.pinnedSkipped}` : ''}`);
-
+      log(`   ✅ Modules: ${stats.modulesUpdated}, Assignments: ${stats.assignmentsUpdated}${'pinnedSkipped' in stats && stats.pinnedSkipped ? `, Pinned: ${stats.pinnedSkipped}` : ''}`);
       // Clear plan_dates from non-actionable items
       log(`   🧹 Clearing plan_dates from non-actionable items...`);
       const clearedCount = await clearNonActionablePlanDates(courseId, supabase);
