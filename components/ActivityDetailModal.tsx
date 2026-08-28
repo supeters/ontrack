@@ -46,6 +46,7 @@ interface Activity {
   start_time?: string;
   end_time?: string;
   kid_id?: number;
+  position?: number;
 }
 
 interface ActivityDetailModalProps {
