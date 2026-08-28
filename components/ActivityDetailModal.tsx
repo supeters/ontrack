@@ -14,10 +14,13 @@ import {
   Play,
   Zap,
   Plus,
-  Check
+  Check,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react';
 import { formatDateLocal, formatTimestampLocal, getDateStr, parseLocalTimestamp } from '@/lib/datetime';
 import { parseChecklistInput } from '@/lib/parseChecklist';
+import { ThemeColors, getTheme } from '@/lib/themes'; // Adjust import path to match your themes file
 
 interface Course {
   id: number;
@@ -49,6 +52,8 @@ interface ActivityDetailModalProps {
   activity: Activity;
   courses?: Course[];
   currentAcademicYear?: string;
+  themeName?: string;
+  themeColors?: ThemeColors;
   onClose: () => void;
   onUpdate?: () => void;
   onLaunchFocus?: (activity: Activity) => void;
@@ -89,10 +94,16 @@ export default function ActivityDetailModal({
   activity,
   courses: coursesProp = [],
   currentAcademicYear,
+  themeName = 'ancientParchment',
+  themeColors,
   onClose,
   onUpdate,
   onLaunchFocus,
 }: ActivityDetailModalProps) {
+  // Resolve theme colors
+  const activeTheme = getTheme(themeName);
+  const c = themeColors || activeTheme.colors;
+
   const [editedActivity, setEditedActivity] = useState<Activity>(activity);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'details' | 'tasks'>('details');
@@ -100,7 +111,6 @@ export default function ActivityDetailModal({
   // Bulk Add Modal & Inputs
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [bulkTaskInput, setBulkTaskInput] = useState('');
-  const [bulkPlanDate, setBulkPlanDate] = useState<string>(activity.plan_date || '');
 
   const [children, setChildren] = useState<Activity[]>([]);
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
@@ -117,14 +127,21 @@ export default function ActivityDetailModal({
   });
   const [courses, setCourses] = useState<Course[]>(coursesProp);
   const [workChunks, setWorkChunks] = useState<any[]>([]);
+  const [editingChunk, setEditingChunk] = useState<any | null>(null);
+  const [editChunkMinutes, setEditChunkMinutes] = useState<number>(0);
+  const [editChunkMood, setEditChunkMood] = useState<string>('');
+  const [editChunkNotes, setEditChunkNotes] = useState<string>('');
+  const [showAddWorkSession, setShowAddWorkSession] = useState(false);
+  const [newSessionMinutes, setNewSessionMinutes] = useState<number>(30);
+  const [newSessionMood, setNewSessionMood] = useState<string>('');
+  const [newSessionNotes, setNewSessionNotes] = useState<string>('');
 
   const actualMinutesRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const bulkTextareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Filter children so only activity_type === 'task' is handled
   const taskChildren = children.filter((c) => c.activity_type === 'task');
 
-  // Auto-resize textarea when editing title
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -133,27 +150,43 @@ export default function ActivityDetailModal({
   }, [editingTaskTitle, editingTaskId]);
 
   useEffect(() => {
+    if (bulkTextareaRef.current) {
+      bulkTextareaRef.current.style.height = 'auto';
+      bulkTextareaRef.current.style.height = `${Math.max(bulkTextareaRef.current.scrollHeight, 150)}px`;
+    }
+  }, [bulkTaskInput]);
+
+  useEffect(() => {
     const loadCourses = async () => {
-      if (coursesProp.length > 0 || !activity.kid_id) return;
+      // 1. Guard against invalid or missing kid_id
+      if (!activity?.kid_id) {
+        console.warn('loadCourses skipped: missing activity.kid_id');
+        return;
+      }
+
+      const url = `/api/courses?kidId=${activity.kid_id}`;
 
       try {
-        const url = currentAcademicYear
-          ? `/api/courses?kidId=${activity.kid_id}&schoolYear=${currentAcademicYear}`
-          : `/api/courses?kidId=${activity.kid_id}`;
-
+        // 2. Wrap network request in try/catch
         const response = await fetch(url);
-        if (response.ok) {
-          const data = await response.json();
-          setCourses(data || []);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
         }
+
+        const data = await response.json();
+        setCourses(data || []);
       } catch (error) {
-        console.error('Error loading courses:', error);
+        // 3. Gracefully handle fetch failure
+        console.error('Failed to fetch courses:', error);
+        setCourses([]);
       }
     };
 
     loadCourses();
-  }, [activity.kid_id, coursesProp, currentAcademicYear]);
+  }, [activity?.kid_id]);
 
+  
   useEffect(() => {
     setIsActionable(activity.is_action ?? false);
     setEditedActivity(activity);
@@ -174,7 +207,16 @@ export default function ActivityDetailModal({
       const response = await fetch(`/api/activities?parent_id=${activity.id}`);
       if (response.ok) {
         const data = await response.json();
-        setChildren(data || []);
+        // Sort by position, then by created_at
+        const sorted = (data || []).sort((a: any, b: any) => {
+          if (a.position !== null && b.position !== null) {
+            return a.position - b.position;
+          }
+          if (a.position !== null) return -1;
+          if (b.position !== null) return 1;
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        });
+        setChildren(sorted);
       }
     } catch (error) {
       console.error('Error loading children:', error);
@@ -254,7 +296,14 @@ export default function ActivityDetailModal({
 
     setSaving(true);
     try {
-      for (const item of parsedItems) {
+      // Get highest existing position for this parent
+      const existingChildren = await fetch(`/api/activities?parent_id=${activity.id}`).then(r => r.json());
+      let maxPosition = existingChildren.reduce((max: number, child: any) =>
+        Math.max(max, child.position || 0), 0
+      );
+
+      for (let i = 0; i < parsedItems.length; i++) {
+        const item = parsedItems[i];
         await fetch('/api/activities', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -264,10 +313,11 @@ export default function ActivityDetailModal({
             title: item.text,
             description: '',
             activityType: 'task',
-            planDate: bulkPlanDate || editedActivity.plan_date || null,
+            planDate: item.planDate || null, // Only use explicit @date, don't default
             estimatedMinutes: 15,
             isActionable: true,
             parentActivityId: activity.id,
+            position: maxPosition + i + 1, // Set position in order
           }),
         });
       }
@@ -344,67 +394,249 @@ export default function ActivityDetailModal({
   const toggleCompletionNow = async () => {
     const nextCompleted = !isCompleted;
     const now = new Date();
+    const nowTimestamp = formatTimestampLocal(now);
 
-    const startTime = editedActivity.start_time || activity.start_time;
-    let calculatedActualMinutes = actualMinutes;
+    try {
+      if (nextCompleted) {
+        // 1. Stop any active work chunks first
+        const activeChunk = workChunks.find(chunk => chunk.is_active);
+        if (activeChunk) {
+          const startTime = new Date(activeChunk.start_time);
+          const endTime = new Date();
+          const minutesWorked = Math.max(0, Math.round((endTime.getTime() - startTime.getTime()) / 60000));
 
-    if (nextCompleted) {
-      if (startTime) {
-        const { date: startDate } = parseLocalTimestamp(startTime);
-        if (startDate) {
-          const elapsedMs = now.getTime() - startDate.getTime();
-          calculatedActualMinutes = Math.max(0, Math.round(elapsedMs / 60000));
-          setActualMinutes(calculatedActualMinutes);
+          await fetch('/api/work-chunks', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chunkId: activeChunk.id,
+              updates: {
+                end_time: endTime.toISOString(),
+                is_active: false,
+                minutes_worked: minutesWorked,
+              },
+            }),
+          });
         }
+
+        // 2. Reload work chunks to get updated totals
+        const chunksRes = await fetch(`/api/work-chunks?activity_id=${activity.id}`);
+        const chunksData = await chunksRes.json();
+        const allChunks = chunksData.chunks || [];
+
+        // 3. Calculate total minutes from all work chunks
+        const totalMinutes = allChunks.reduce((sum: number, chunk: any) => {
+          return sum + getChunkMinutes(chunk);
+        }, 0);
+
+        // 4. Mark activity as completed with calculated actual_minutes
+        const completedDate = editedActivity.plan_date || formatDateLocal(now);
+        await fetch('/api/activities', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            activityId: activity.id,
+            updates: {
+              is_completed: true,
+              completed_at: completedDate,
+              end_time: nowTimestamp,
+              start_time: null,
+              actual_minutes: totalMinutes > 0 ? totalMinutes : null,
+            },
+          }),
+        });
+
+        // 5. Update local state
+        setWorkChunks(allChunks);
+        setActualMinutes(totalMinutes > 0 ? totalMinutes : null);
+        setCompletedAt(completedDate);
+        setIsCompleted(true);
+
+        if (onUpdate) onUpdate();
+      } else {
+        // Uncomplete the activity
+        await fetch('/api/activities', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            activityId: activity.id,
+            updates: {
+              is_completed: false,
+              completed_at: null,
+              end_time: null,
+              actual_minutes: null,
+            },
+          }),
+        });
+
+        setCompletedAt('');
+        setActualMinutes(null);
+        setIsCompleted(false);
+
+        if (onUpdate) onUpdate();
       }
+    } catch (error) {
+      console.error('Error toggling completion:', error);
+    }
+  };
 
-      const activeCompletedDate = completedAt || editedActivity.plan_date || formatDateLocal(now);
-      setCompletedAt(activeCompletedDate);
+  const handleEditChunk = (chunk: any) => {
+    setEditingChunk(chunk);
+    setEditChunkMinutes(getChunkMinutes(chunk));
+    setEditChunkMood(chunk.mood || '');
+    setEditChunkNotes(chunk.notes || '');
+  };
 
-      setEditedActivity((prev) => ({
-        ...prev,
-        end_time: formatTimestampLocal(now),
-        actual_minutes: calculatedActualMinutes ?? undefined,
-      }));
-    } else {
-      setCompletedAt('');
-      setActualMinutes(null);
-      setEditedActivity((prev) => ({
-        ...prev,
-        start_time: undefined,
-        end_time: undefined,
-        actual_minutes: undefined,
-      }));
+  const handleSaveChunk = async () => {
+    if (!editingChunk) return;
+
+    try {
+      await fetch('/api/work-chunks', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chunkId: editingChunk.id,
+          updates: {
+            minutes_worked: editChunkMinutes,
+            mood: editChunkMood || null,
+            notes: editChunkNotes || null,
+          },
+        }),
+      });
+
+      // Reload work chunks
+      const response = await fetch(`/api/work-chunks?activity_id=${activity.id}`);
+      const data = await response.json();
+      setWorkChunks(data.chunks || []);
+      setEditingChunk(null);
+    } catch (error) {
+      console.error('Error updating work chunk:', error);
+    }
+  };
+
+  const handleCancelEditChunk = () => {
+    setEditingChunk(null);
+    setEditChunkMinutes(0);
+    setEditChunkMood('');
+    setEditChunkNotes('');
+  };
+
+  const handleDeleteChunk = async (chunkId: number) => {
+    if (!confirm('Delete this work session?')) return;
+
+    try {
+      await fetch('/api/work-chunks', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chunkId }),
+      });
+
+      // Reload work chunks
+      const response = await fetch(`/api/work-chunks?activity_id=${activity.id}`);
+      const data = await response.json();
+      setWorkChunks(data.chunks || []);
+    } catch (error) {
+      console.error('Error deleting work chunk:', error);
+    }
+  };
+
+  const handleAddWorkSession = async () => {
+    if (!newSessionMinutes || newSessionMinutes <= 0) {
+      alert('Please enter valid minutes');
+      return;
     }
 
-    setIsCompleted(nextCompleted);
-    setHasChanges(true);
+    try {
+      const now = new Date();
+      const startTime = new Date(now.getTime() - newSessionMinutes * 60000);
 
-    if (nextCompleted) {
-      setTimeout(() => {
-        actualMinutesRef.current?.focus();
-        actualMinutesRef.current?.select();
-      }, 100);
+      await fetch('/api/work-chunks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          activity_id: activity.id,
+          kid_id: activity.kid_id,
+          start_time: startTime.toISOString(),
+          end_time: now.toISOString(),
+          is_active: false,
+          is_manual: true,
+          minutes_worked: newSessionMinutes,
+          mood: newSessionMood || null,
+          notes: newSessionNotes || null,
+        }),
+      });
+
+      // Reload work chunks
+      const response = await fetch(`/api/work-chunks?activity_id=${activity.id}`);
+      const data = await response.json();
+      setWorkChunks(data.chunks || []);
+
+      // Reset form and close
+      setNewSessionMinutes(30);
+      setNewSessionMood('');
+      setNewSessionNotes('');
+      setShowAddWorkSession(false);
+    } catch (error) {
+      console.error('Error adding work session:', error);
+    }
+  };
+
+  const moveTask = async (taskId: number, direction: 'up' | 'down') => {
+    const currentIndex = taskChildren.findIndex(t => t.id === taskId);
+    if (currentIndex === -1) return;
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= taskChildren.length) return;
+
+    const currentTask = taskChildren[currentIndex];
+    const targetTask = taskChildren[targetIndex];
+
+    // Swap positions
+    try {
+      await Promise.all([
+        fetch('/api/activities', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            activityId: currentTask.id,
+            updates: { position: targetTask.position },
+          }),
+        }),
+        fetch('/api/activities', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            activityId: targetTask.id,
+            updates: { position: currentTask.position },
+          }),
+        }),
+      ]);
+
+      await fetchChildren();
+      if (onUpdate) onUpdate();
+    } catch (error) {
+      console.error('Error reordering tasks:', error);
     }
   };
 
   const lmsUrl = activity.lms_url || activity.resource_url;
 
   return (
-    <div className="animate-in backdrop-blur-xs bg-black/40 duration-200 fade-in fixed inset-0 overflow-hidden transition-opacity z-50">
+    <div className="animate-in backdrop-blur-xs bg-black/50 duration-200 fade-in fixed inset-0 overflow-hidden transition-opacity z-50">
       <div className="absolute inset-0" onClick={onClose} />
 
       <div className="fixed flex inset-y-0 max-w-full pl-10 right-0">
-        <div className="bg-white border-gray-200 border-l duration-300 ease-in-out flex flex-col max-w-xl shadow-2xl slide-in-from-right transform transition-transform w-screen">
+        <div className={`${c.cardBg} ${c.text} border-l ${c.sidebarBorder} duration-300 ease-in-out flex flex-col max-w-xl shadow-2xl slide-in-from-right transform transition-transform w-screen`}>
 
-          <div className="bg-gray-50/80 border-b border-gray-100 flex flex-col gap-3 px-6 py-5">
+          {/* Header */}
+          <div className={`${c.workgroupBg} border-b ${c.sidebarBorder} flex flex-col gap-3 px-6 py-5`}>
             <div className="flex items-center justify-between">
               <div className="flex gap-2 items-center">
-                <span className="bg-blue-100 capitalize font-semibold px-2.5 py-0.5 rounded-full text-blue-800 text-xs">
+                <span className={`${c.moduleHeader} ${c.moduleText} capitalize font-semibold px-2.5 py-0.5 rounded-full text-xs`}>
                   {activity.activity_type}
                 </span>
                 {isActionable && (
-                  <span className="bg-emerald-100 font-semibold px-2.5 py-0.5 rounded-full text-emerald-800 text-xs">
+                  <span className={`${c.checkboxChecked} text-white font-semibold px-2.5 py-0.5 rounded-full text-xs`}>
                     Actionable
                   </span>
                 )}
@@ -416,7 +648,7 @@ export default function ActivityDetailModal({
                     href={lmsUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="bg-blue-600 flex font-semibold gap-1.5 hover:bg-blue-700 items-center px-3 py-1.5 rounded-lg shadow-sm text-white text-xs transition-colors"
+                    className={`${c.checkboxChecked} flex font-semibold gap-1.5 hover:opacity-90 items-center px-3 py-1.5 rounded-lg shadow-sm text-white text-xs transition-colors`}
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
                     Open LMS Page
@@ -424,24 +656,25 @@ export default function ActivityDetailModal({
                 )}
                 <button
                   onClick={onClose}
-                  className="hover:bg-gray-200/70 p-1.5 rounded-full text-gray-500 transition-colors"
+                  className={`p-1.5 rounded-full ${c.mutedText} ${c.activityHover} transition-colors`}
                 >
                   <X className="h-5 w-5" />
                 </button>
               </div>
             </div>
 
-            <h2 className="font-bold leading-snug text-gray-900 text-xl">{activity.title}</h2>
+            <h2 className={`font-bold leading-snug ${c.text} text-xl`}>{activity.title}</h2>
           </div>
 
-          <div className="bg-white border-b border-gray-100 flex items-center justify-between px-6 sticky top-0 z-10">
+          {/* Tabs Nav */}
+          <div className={`${c.cardBg} border-b ${c.sidebarBorder} flex items-center justify-between px-6 sticky top-0 z-10`}>
             <div className="flex gap-4 items-center">
               <button
                 onClick={() => setActiveTab('details')}
                 className={`py-3 text-sm font-semibold border-b-2 transition-colors ${
                   activeTab === 'details'
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-400 hover:text-gray-700'
+                    ? `${c.sidebarSelectedBorder} ${c.text}`
+                    : `border-transparent ${c.mutedText}`
                 }`}
               >
                 Overview & Schedule
@@ -450,13 +683,13 @@ export default function ActivityDetailModal({
                 onClick={() => setActiveTab('tasks')}
                 className={`py-3 text-sm font-semibold border-b-2 flex items-center gap-1.5 transition-colors ${
                   activeTab === 'tasks'
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-400 hover:text-gray-700'
+                    ? `${c.sidebarSelectedBorder} ${c.text}`
+                    : `border-transparent ${c.mutedText}`
                 }`}
               >
                 Checklist
                 {taskChildren.length > 0 && (
-                  <span className="bg-gray-100 font-bold px-2 py-0.5 rounded-full text-gray-700 text-xs">
+                  <span className={`${c.moduleHeader} ${c.text} font-bold px-2 py-0.5 rounded-full text-xs`}>
                     {taskChildren.length}
                   </span>
                 )}
@@ -464,23 +697,24 @@ export default function ActivityDetailModal({
             </div>
           </div>
 
+          {/* Modal Body */}
           <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
             {activeTab === 'details' && (
               <>
                 {onLaunchFocus && !isCompleted && (
-                  <div className="bg-gradient-to-r flex from-blue-600 items-center justify-between p-4 rounded-2xl shadow-md text-white to-indigo-600">
+                  <div className={`${c.moduleHeader} border ${c.moduleBorder} flex items-center justify-between p-4 rounded-2xl shadow-md`}>
                     <div className="space-y-0.5">
-                      <div className="flex font-bold gap-1.5 items-center text-blue-200 text-xs tracking-wider uppercase">
-                        <Zap className="fill-yellow-300 h-3.5 text-yellow-300 w-3.5" />
+                      <div className={`flex font-bold gap-1.5 items-center ${c.moduleIcon} text-xs tracking-wider uppercase`}>
+                        <Zap className="fill-current h-3.5 w-3.5" />
                         Deep Work Session
                       </div>
-                      <p className="font-medium text-sm">Ready to lock in and crush this assignment?</p>
+                      <p className={`font-medium ${c.text} text-sm`}>Ready to lock in and crush this assignment?</p>
                     </div>
                     <button
                       onClick={() => onLaunchFocus(activity)}
-                      className="active:scale-95 bg-white flex font-bold gap-1.5 hover:bg-blue-50 items-center px-4 py-2 rounded-xl shadow-sm text-blue-700 text-xs transition-transform"
+                      className={`active:scale-95 ${c.checkboxChecked} text-white flex font-bold gap-1.5 hover:opacity-90 items-center px-4 py-2 rounded-xl shadow-sm text-xs transition-transform`}
                     >
-                      <Play className="fill-blue-700 h-3.5 w-3.5" />
+                      <Play className="fill-current h-3.5 w-3.5" />
                       Start Focus Timer
                     </button>
                   </div>
@@ -488,15 +722,15 @@ export default function ActivityDetailModal({
 
                 <div className="gap-3 grid grid-cols-1">
                   {courses.length > 0 && (
-                    <div className="bg-blue-50/70 border border-blue-200 p-4 rounded-xl space-y-2">
-                      <label className="flex font-bold gap-1.5 items-center text-blue-900 text-sm">
-                        <BookOpen className="h-4 text-blue-600 w-4" />
+                    <div className={`${c.workgroupBg} border ${c.sidebarBorder} p-4 rounded-xl space-y-2`}>
+                      <label className={`flex font-bold gap-1.5 items-center ${c.text} text-sm`}>
+                        <BookOpen className={`h-4 ${c.moduleIcon} w-4`} />
                         Course
                       </label>
                       <select
                         value={editedActivity.course_id || ''}
                         onChange={(e) => handleFieldChange('course_id', Number(e.target.value) || undefined)}
-                        className="bg-white border border-blue-200 focus:ring-2 focus:ring-blue-500 font-semibold outline-none px-3 py-2 rounded-lg text-gray-900 text-sm w-full"
+                        className={`${c.cardBg} ${c.text} border ${c.sidebarBorder} focus:ring-2 focus:ring-amber-500 font-semibold outline-none px-3 py-2 rounded-lg text-sm w-full`}
                       >
                         <option value="">No Course Selected</option>
                         {filteredCourses.map((course) => (
@@ -508,14 +742,14 @@ export default function ActivityDetailModal({
                     </div>
                   )}
 
-                  <div className="bg-gray-50/70 border border-gray-100 p-4 rounded-xl">
+                  <div className={`${c.workgroupBg} border ${c.sidebarBorder} p-4 rounded-xl`}>
                     <div className="flex items-center justify-between">
                       <div className="space-y-0.5">
-                        <label className="flex font-bold gap-1.5 items-center text-gray-700 text-sm">
-                          <Zap className="h-4 text-emerald-600 w-4" />
+                        <label className={`flex font-bold gap-1.5 items-center ${c.text} text-sm`}>
+                          <Zap className={`h-4 ${c.activityIcon} w-4`} />
                           Actionable Status
                         </label>
-                        <p className="text-gray-500 text-xs">Mark as actionable to show in your task list</p>
+                        <p className={`${c.mutedText} text-xs`}>Mark as actionable to show in your task list</p>
                       </div>
                       <button
                         type="button"
@@ -523,8 +757,8 @@ export default function ActivityDetailModal({
                           setIsActionable(!isActionable);
                           setHasChanges(true);
                         }}
-                        className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${
-                          isActionable ? 'bg-emerald-600' : 'bg-gray-300'
+                        className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none ${
+                          isActionable ? c.checkboxChecked : 'bg-gray-300 dark:bg-gray-700'
                         }`}
                       >
                         <span
@@ -537,28 +771,28 @@ export default function ActivityDetailModal({
                   </div>
                 </div>
 
-                <div className="bg-gray-50/50 border border-gray-100 p-4 rounded-xl space-y-4">
+                <div className={`${c.workgroupBg} border ${c.sidebarBorder} p-4 rounded-xl space-y-4`}>
                   <div className="space-y-2">
-                    <div className="flex font-bold gap-1.5 items-center text-[11px] text-gray-400 tracking-wider uppercase">
-                      <Calendar className="h-3.5 text-blue-500 w-3.5" />
+                    <div className={`flex font-bold gap-1.5 items-center text-[11px] ${c.mutedText} tracking-wider uppercase`}>
+                      <Calendar className={`h-3.5 ${c.activityIcon} w-3.5`} />
                       Planning
                     </div>
 
                     <div className="gap-3 grid grid-cols-2">
                       <div>
-                        <label className="block font-medium mb-1 text-gray-600 text-xs">Plan Date</label>
+                        <label className={`block font-medium mb-1 ${c.statText} text-xs`}>Plan Date</label>
                         <div className="flex gap-1">
                           <input
                             type="date"
                             value={editedActivity.plan_date || ''}
                             onChange={(e) => handleFieldChange('plan_date', e.target.value || undefined)}
-                            className="bg-white border border-gray-200 flex-1 focus:ring-2 focus:ring-blue-500 outline-none px-2.5 py-1.5 rounded-lg text-xs"
+                            className={`${c.cardBg} ${c.text} border ${c.sidebarBorder} flex-1 outline-none px-2.5 py-1.5 rounded-lg text-xs`}
                           />
                           {editedActivity.plan_date && (
                             <button
                               type="button"
                               onClick={() => handleFieldChange('plan_date', undefined)}
-                              className="bg-gray-200 font-bold hover:bg-gray-300 px-2 py-1 rounded-lg text-gray-600 text-xs transition-colors"
+                              className={`${c.moduleHeader} ${c.text} font-bold px-2 py-1 rounded-lg text-xs transition-colors`}
                               title="Clear Plan Date"
                             >
                               ✕
@@ -568,7 +802,7 @@ export default function ActivityDetailModal({
                       </div>
 
                       <div>
-                        <label className="block font-medium mb-1 text-gray-600 text-xs">Est. Mins</label>
+                        <label className={`block font-medium mb-1 ${c.statText} text-xs`}>Est. Mins</label>
                         <div className="flex gap-1">
                           <input
                             type="number"
@@ -580,14 +814,14 @@ export default function ActivityDetailModal({
                               )
                             }
                             placeholder="30"
-                            className="bg-white border border-gray-200 flex-1 focus:ring-2 focus:ring-blue-500 outline-none px-2.5 py-1.5 rounded-lg text-xs"
+                            className={`${c.cardBg} ${c.text} border ${c.sidebarBorder} flex-1 outline-none px-2.5 py-1.5 rounded-lg text-xs`}
                           />
                           {editedActivity.estimated_minutes !== null &&
                             editedActivity.estimated_minutes !== undefined && (
                               <button
                                 type="button"
                                 onClick={() => handleFieldChange('estimated_minutes', undefined)}
-                                className="bg-gray-200 font-bold hover:bg-gray-300 px-2 py-1 rounded-lg text-gray-600 text-xs transition-colors"
+                                className={`${c.moduleHeader} ${c.text} font-bold px-2 py-1 rounded-lg text-xs transition-colors`}
                                 title="Clear Estimated Minutes"
                               >
                                 ✕
@@ -598,34 +832,46 @@ export default function ActivityDetailModal({
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={toggleCompletionNow}
-                    className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all ${
-                      isCompleted
-                        ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                  >
-                    <CheckCircle2 className="h-4 w-4" />
-                    {isCompleted ? '✓ Completed' : 'Mark Complete'}
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={toggleCompletionNow}
+                      className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold transition-all ${
+                        isCompleted
+                          ? `${c.checkboxChecked} text-white shadow-sm`
+                          : `${c.moduleHeader} ${c.text} hover:opacity-90`
+                      }`}
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      {isCompleted ? '✓ Completed' : 'Mark Complete'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowAddWorkSession(true)}
+                      className={`${c.moduleHeader} ${c.text} flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium hover:opacity-80 transition-opacity`}
+                      title="Add manual work session"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span className="hidden sm:inline">Add Time</span>
+                    </button>
+                  </div>
 
                   {workChunks.length > 0 && (
-                    <div className="bg-purple-50 border border-purple-200 p-3 rounded-lg space-y-2">
+                    <div className={`${c.moduleHeader} border ${c.moduleBorder} p-3 rounded-lg space-y-2`}>
                       <div className="flex items-center justify-between">
-                        <label className="block font-bold text-[10px] text-purple-800 tracking-wider uppercase">
+                        <label className={`block font-bold text-[10px] ${c.text} tracking-wider uppercase`}>
                           ⏱️ Work Sessions ({workChunks.length})
                         </label>
-                        <div className="font-semibold text-purple-900 text-xs">
+                        <div className={`font-semibold ${c.text} text-xs`}>
                           Total: {workChunks.reduce((sum, chunk) => sum + getChunkMinutes(chunk), 0)} min
                         </div>
                       </div>
-                      <div className="max-h-32 overflow-y-auto space-y-1.5">
+                      <div className="max-h-40 overflow-y-auto space-y-1.5">
                         {workChunks.map((chunk, idx) => (
-                          <div key={chunk.id} className="bg-white border border-purple-100 flex items-center justify-between px-2 py-1.5 rounded text-xs">
-                            <div className="flex gap-2 items-center">
-                              <span className="font-mono text-[10px] text-gray-500">#{idx + 1}</span>
+                          <div key={chunk.id} className={`${c.cardBg} border ${c.sidebarBorder} flex items-center justify-between px-2 py-1.5 rounded text-xs gap-2`}>
+                            <div className="flex gap-2 items-center flex-1 min-w-0">
+                              <span className={`font-mono text-[10px] ${c.mutedText}`}>#{idx + 1}</span>
                               {chunk.mood && (
                                 <span className="text-sm">
                                   {chunk.mood === 'struggled' && '😫'}
@@ -635,112 +881,113 @@ export default function ActivityDetailModal({
                                   {chunk.mood === 'focused' && '🎯'}
                                 </span>
                               )}
-                              <span className="font-medium text-gray-700">
+                              <span className={`font-medium ${c.text}`}>
                                 {getChunkMinutes(chunk)} min
                               </span>
                               {chunk.is_active && (
-                                <span className="bg-green-100 font-bold px-1.5 py-0.5 rounded text-[10px] text-green-800 uppercase">
+                                <span className={`${c.checkboxChecked} font-bold px-1.5 py-0.5 rounded text-[10px] text-white uppercase`}>
                                   Active
                                 </span>
                               )}
+                              {chunk.notes && (
+                                <span className={`max-w-[100px] text-[10px] ${c.mutedText} truncate`} title={chunk.notes}>
+                                  "{chunk.notes}"
+                                </span>
+                              )}
                             </div>
-                            {chunk.notes && (
-                              <span className="max-w-[120px] text-[10px] text-gray-500 truncate" title={chunk.notes}>
-                                "{chunk.notes}"
-                              </span>
-                            )}
+                            <div className="flex gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleEditChunk(chunk)}
+                                className={`${c.moduleHeader} ${c.text} px-1.5 py-0.5 rounded text-[10px] font-medium hover:opacity-80 transition-opacity`}
+                                title="Edit work session"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteChunk(chunk.id)}
+                                className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-medium hover:bg-red-200 transition-colors"
+                                title="Delete work session"
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
                     </div>
                   )}
 
-                  <div className="border-gray-200/80 border-t pt-3 space-y-3">
-                    <div className="flex font-bold gap-1.5 items-center text-[11px] text-gray-400 tracking-wider uppercase">
-                      <Clock className="h-3.5 text-emerald-600 w-3.5" />
-                      Log & Completion Details
-                    </div>
-
-                    <div className="space-y-3">
-                      <div>
-                        <label className="block font-medium mb-1 text-gray-600 text-xs">Completion Date</label>
-                        <div className="flex gap-1">
-                          <input
-                            type="date"
-                            value={completedAt || ''}
-                            onChange={(e) => {
-                              setCompletedAt(e.target.value);
-                              setHasChanges(true);
-                            }}
-                            className="bg-white border border-gray-200 flex-1 focus:ring-2 focus:ring-emerald-500 outline-none px-2.5 py-1.5 rounded-lg text-xs"
-                          />
-                          {completedAt && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setCompletedAt('');
-                                setHasChanges(true);
-                              }}
-                              className="bg-gray-200 font-bold hover:bg-gray-300 px-2 py-1 rounded-lg text-gray-600 text-xs transition-colors"
-                              title="Clear Completion Date"
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
+                  {isCompleted && (
+                    <div className={`border-t ${c.sidebarBorder} pt-3 space-y-3`}>
+                      <div className={`flex font-bold gap-1.5 items-center text-[11px] ${c.mutedText} tracking-wider uppercase`}>
+                        <Clock className={`h-3.5 ${c.activityIcon} w-3.5`} />
+                        Log & Completion Details
                       </div>
 
-                      <div>
-                        <label className="block font-bold mb-1 text-gray-600 text-xs">Actual Mins ⭐</label>
-                        <div className="flex gap-1">
-                          <input
-                            ref={actualMinutesRef}
-                            type="number"
-                            value={actualMinutes ?? ''}
-                            onChange={(e) => {
-                              const val = e.target.value !== '' ? parseInt(e.target.value, 10) : null;
-                              setActualMinutes(val);
-                              setHasChanges(true);
-                            }}
-                            placeholder="0"
-                            className="bg-yellow-50 border-2 border-yellow-400 flex-1 focus:ring-2 focus:ring-yellow-500 font-bold outline-none px-2.5 py-1.5 rounded-lg text-xs"
-                          />
-                          {actualMinutes !== null && actualMinutes !== undefined && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setActualMinutes(null);
+                      <div className="space-y-3">
+                        <div>
+                          <label className={`block font-medium mb-1 ${c.statText} text-xs`}>Completion Date</label>
+                          <div className="flex gap-1">
+                            <input
+                              type="date"
+                              value={completedAt || ''}
+                              onChange={(e) => {
+                                setCompletedAt(e.target.value);
                                 setHasChanges(true);
                               }}
-                              className="bg-gray-200 font-bold hover:bg-gray-300 px-2 py-1 rounded-lg text-gray-600 text-xs transition-colors"
-                              title="Clear Actual Minutes"
-                            >
-                              ✕
-                            </button>
-                          )}
+                              className={`${c.cardBg} ${c.text} border ${c.sidebarBorder} flex-1 outline-none px-2.5 py-1.5 rounded-lg text-xs`}
+                            />
+                            {completedAt && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCompletedAt('');
+                                  setHasChanges(true);
+                                }}
+                                className={`${c.moduleHeader} ${c.text} font-bold px-2 py-1 rounded-lg text-xs transition-colors`}
+                                title="Clear Completion Date"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className={`block font-bold mb-1 ${c.statText} text-xs`}>Time Spent</label>
+                          <div className={`${c.workgroupBg} border ${c.moduleBorder} px-3 py-2 rounded-lg`}>
+                            <div className={`text-lg font-bold ${c.text}`}>
+                              {actualMinutes ? `${actualMinutes} min` : '—'}
+                            </div>
+                            <div className={`text-[10px] ${c.mutedText}`}>
+                              Calculated from {workChunks.length} work session{workChunks.length !== 1 ? 's' : ''}
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
-                  <div className="bg-white flex items-center justify-between py-1 sticky top-0 z-10">
-                    <label className="font-bold text-[11px] text-gray-400 tracking-wider uppercase">
+                  <div className={`flex items-center justify-between py-1 sticky top-0 z-10 ${c.cardBg}`}>
+                    <label className={`font-bold text-[11px] ${c.mutedText} tracking-wider uppercase`}>
                       Description & Instructions
                     </label>
                   </div>
 
                   {activity.description ? (
-                    <div className="bg-gray-50/30 border border-gray-100 min-h-[150px] p-4 rounded-xl">
+                    <div className={`${c.workgroupBg} border ${c.sidebarBorder} min-h-[150px] p-4 rounded-xl`}>
                       <div
-                        className="leading-relaxed max-w-none prose prose-sm text-gray-800"
+                        className={`leading-relaxed max-w-none prose prose-sm ${c.text}`}
                         dangerouslySetInnerHTML={{ __html: activity.description }}
                         style={{ userSelect: 'text', WebkitUserSelect: 'text' }}
                       />
                     </div>
                   ) : (
-                    <div className="border border-dashed border-gray-200 italic p-6 rounded-xl text-center text-gray-400 text-xs">
+                    <div className={`border border-dashed ${c.sidebarBorder} italic p-6 rounded-xl text-center ${c.mutedText} text-xs`}>
                       No detailed description provided for this activity.
                     </div>
                   )}
@@ -750,26 +997,80 @@ export default function ActivityDetailModal({
 
             {activeTab === 'tasks' && (
               <div className="space-y-4">
-                {/* Header row with Add Button */}
                 <div className="flex items-center justify-between">
-                  <div className="font-bold text-gray-400 text-xs tracking-wider uppercase">
+                  <div className={`font-bold text-xs ${c.mutedText} tracking-wider uppercase`}>
                     Checklist ({taskChildren.length})
                   </div>
-                  <button
-                    onClick={() => setShowBulkModal(true)}
-                    className="active:scale-95 bg-blue-600 flex font-semibold hover:bg-blue-700 items-center p-2 rounded-full shadow-md text-white transition-all"
-                    title="Add tasks"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
+                  <div className="flex gap-2 items-center">
+                    {taskChildren.length > 0 && (
+                      <button
+                        onClick={async () => {
+                          if (!confirm(`Delete all ${taskChildren.length} checklist items? This cannot be undone.`)) return;
+
+                          try {
+                            await Promise.all(
+                              taskChildren.map(child =>
+                                fetch('/api/activities', {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    activityId: child.id,
+                                    updates: { is_deleted: true },
+                                  }),
+                                })
+                              )
+                            );
+                            await fetchChildren();
+                            if (onUpdate) onUpdate();
+                          } catch (error) {
+                            console.error('Error deleting all tasks:', error);
+                          }
+                        }}
+                        className={`${c.dangerBg} ${c.dangerBorder} ${c.dangerText} border flex font-medium gap-1 hover:opacity-80 items-center px-2 py-1 rounded-lg text-[10px] transition-opacity`}
+                        title="Delete all checklist items"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        Delete All
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        const rawDescription = activity.description
+                          ? activity.description
+                              .replace(/<br\s*[\/]?>/gi, '\n')
+                              .replace(/<\/p>/gi, '\n')
+                              .replace(/<[^>]+>/g, '')
+                              .trim()
+                          : '';
+
+                        if (rawDescription) {
+                          const formattedInput = rawDescription
+                            .split('\n')
+                            .map((line) => line.trim())
+                            .filter(Boolean)
+                            .map((line) => (line.startsWith('#') ? line : `# ${line}`))
+                            .join('\n');
+
+                          setBulkTaskInput(formattedInput);
+                        } else {
+                          setBulkTaskInput('');
+                        }
+
+                        setShowBulkModal(true);
+                      }}
+                      className={`active:scale-95 ${c.checkboxChecked} text-white flex font-semibold hover:opacity-90 items-center p-2 rounded-full shadow-md transition-all`}
+                      title="Add tasks"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
 
-                {/* Styled Checklist */}
                 {taskChildren.length === 0 ? (
-                  <div className="border-2 border-dashed border-gray-200 py-12 rounded-2xl space-y-2 text-center text-gray-400">
+                  <div className={`border-2 border-dashed ${c.sidebarBorder} py-12 rounded-2xl space-y-2 text-center ${c.mutedText}`}>
                     <FileText className="h-8 mx-auto opacity-30 w-8" />
                     <p className="font-medium text-xs">No checklist tasks yet</p>
-                    <p className="max-w-xs mx-auto text-[11px] text-gray-400">
+                    <p className={`max-w-xs mx-auto text-[11px] ${c.mutedText}`}>
                       Click the + button above to add new tasks to this activity.
                     </p>
                   </div>
@@ -780,8 +1081,8 @@ export default function ActivityDetailModal({
                         key={child.id}
                         className={`group border flex items-start justify-between p-3 rounded-xl transition-all gap-3 ${
                           child.is_completed
-                            ? 'bg-gray-50/70 border-gray-200/80 opacity-75'
-                            : 'bg-white border-gray-200/80 shadow-xs hover:border-blue-300 hover:shadow-sm'
+                            ? `${c.workgroupBg} ${c.sidebarBorder} opacity-75`
+                            : `${c.cardBg} ${c.sidebarBorder} shadow-xs ${c.activityHover}`
                         }`}
                       >
                         <div className="flex flex-1 gap-3 items-start min-w-0">
@@ -805,8 +1106,8 @@ export default function ActivityDetailModal({
                             }}
                             className={`flex h-5 w-5 items-center justify-center rounded-md transition-all shrink-0 mt-0.5 ${
                               child.is_completed
-                                ? 'bg-emerald-600 text-white'
-                                : 'border-2 border-gray-300 hover:border-emerald-500'
+                                ? `${c.checkboxChecked} text-white`
+                                : `border-2 ${c.checkboxBorder}`
                             }`}
                           >
                             {child.is_completed && <Check className="h-3.5 stroke-[3] w-3.5" />}
@@ -829,7 +1130,7 @@ export default function ActivityDetailModal({
                                 }}
                                 autoFocus
                                 rows={1}
-                                className="bg-blue-50/50 border border-blue-300 focus:ring-2 focus:ring-blue-500 leading-relaxed outline-none overflow-hidden px-2 py-1 resize-none rounded text-gray-800 text-xs w-full"
+                                className={`${c.cardBg} ${c.text} border ${c.sidebarSelectedBorder} leading-relaxed outline-none overflow-hidden px-2 py-1 resize-none rounded text-xs w-full`}
                               />
                             ) : (
                               <p
@@ -837,8 +1138,8 @@ export default function ActivityDetailModal({
                                   setEditingTaskId(child.id);
                                   setEditingTaskTitle(child.title);
                                 }}
-                                className={`text-xs font-normal leading-relaxed break-words cursor-pointer hover:bg-gray-100/80 p-1 rounded transition-colors ${
-                                  child.is_completed ? 'line-through text-gray-400' : 'text-gray-700'
+                                className={`text-xs font-normal leading-relaxed break-words cursor-pointer p-1 rounded transition-colors ${
+                                  child.is_completed ? `line-through ${c.mutedText}` : c.text
                                 }`}
                                 title="Click to edit text"
                               >
@@ -846,22 +1147,41 @@ export default function ActivityDetailModal({
                               </p>
                             )}
                             {child.description && (
-                              <p className="break-words leading-normal mt-1 text-[11px] text-gray-500">{child.description}</p>
+                              <p className={`break-words leading-normal mt-1 text-[11px] ${c.mutedText}`}>{child.description}</p>
                             )}
                           </div>
                         </div>
 
-                        {/* Minimal Plan Date Icon & Formatting */}
                         <div className="flex gap-1.5 items-center pt-0.5 shrink-0">
+                          {/* Reorder buttons */}
+                          <div className="flex flex-col gap-0.5">
+                            <button
+                              onClick={() => moveTask(child.id, 'up')}
+                              disabled={taskChildren.indexOf(child) === 0}
+                              className={`p-0.5 rounded transition-opacity ${c.mutedText} ${c.activityHover} disabled:opacity-30 disabled:cursor-not-allowed`}
+                              title="Move up"
+                            >
+                              <ChevronUp className="h-3 w-3" />
+                            </button>
+                            <button
+                              onClick={() => moveTask(child.id, 'down')}
+                              disabled={taskChildren.indexOf(child) === taskChildren.length - 1}
+                              className={`p-0.5 rounded transition-opacity ${c.mutedText} ${c.activityHover} disabled:opacity-30 disabled:cursor-not-allowed`}
+                              title="Move down"
+                            >
+                              <ChevronDown className="h-3 w-3" />
+                            </button>
+                          </div>
+
                           <div className="flex items-center relative">
                             <button
                               type="button"
-                              className="flex gap-1 hover:bg-blue-50 hover:text-blue-600 items-center p-1.5 rounded-lg text-gray-400 transition-colors"
+                              className={`flex gap-1 items-center p-1.5 rounded-lg ${c.mutedText} ${c.activityHover} transition-colors`}
                               title="Set or change plan date"
                             >
                               <Calendar className="h-4 w-4" />
                               {child.plan_date && (
-                                <span className="font-semibold text-[11px] text-gray-600">
+                                <span className={`font-semibold text-[11px] ${c.statText}`}>
                                   {child.plan_date.includes('T') ? child.plan_date.split('T')[0] : child.plan_date}
                                 </span>
                               )}
@@ -876,7 +1196,7 @@ export default function ActivityDetailModal({
 
                           <button
                             onClick={() => deleteActivity(child.id)}
-                            className="group-hover:opacity-100 hover:text-red-600 opacity-0 p-1 rounded text-gray-300 transition-opacity"
+                            className="group-hover:opacity-100 hover:text-red-500 opacity-0 p-1 rounded text-gray-400 transition-opacity"
                             title="Delete task"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -890,7 +1210,8 @@ export default function ActivityDetailModal({
             )}
           </div>
 
-          <div className="bg-gray-50/80 border-gray-100 border-t flex items-center justify-between px-6 py-4">
+          {/* Modal Footer */}
+          <div className={`${c.workgroupBg} border-t ${c.sidebarBorder} flex items-center justify-between px-6 py-4`}>
             <button
               onClick={() => deleteActivity(activity.id)}
               className="flex font-semibold gap-1.5 hover:text-red-700 items-center text-red-600 text-xs transition-colors"
@@ -902,14 +1223,14 @@ export default function ActivityDetailModal({
             <div className="flex gap-2">
               <button
                 onClick={onClose}
-                className="font-semibold hover:bg-gray-200/60 px-4 py-2 rounded-lg text-gray-600 text-xs transition-colors"
+                className={`font-semibold px-4 py-2 rounded-lg ${c.mutedText} ${c.activityHover} text-xs transition-colors`}
               >
                 Cancel
               </button>
               <button
                 onClick={saveChanges}
                 disabled={saving || !hasChanges}
-                className="bg-blue-600 disabled:opacity-50 flex font-semibold gap-1.5 hover:bg-blue-700 items-center px-4 py-2 rounded-lg shadow-sm text-white text-xs transition-colors"
+                className={`${c.checkboxChecked} text-white disabled:opacity-50 flex font-semibold gap-1.5 hover:opacity-90 items-center px-4 py-2 rounded-lg shadow-sm text-xs transition-colors`}
               >
                 <Save className="h-3.5 w-3.5" />
                 {saving ? 'Saving...' : 'Save Changes'}
@@ -923,12 +1244,12 @@ export default function ActivityDetailModal({
       {/* Add Task Modal */}
       {showBulkModal && (
         <div className="animate-in backdrop-blur-xs bg-black/50 duration-150 fade-in fixed flex inset-0 items-center justify-center p-4 z-60">
-          <div className="bg-white border border-gray-100 max-w-lg p-6 rounded-2xl shadow-2xl space-y-4 w-full">
-            <div className="border-b border-gray-100 flex items-center justify-between pb-3">
-              <h3 className="font-bold text-base text-gray-900">Add Checklist Tasks</h3>
+          <div className={`${c.cardBg} ${c.text} border ${c.sidebarBorder} max-w-lg p-6 rounded-2xl shadow-2xl space-y-4 w-full`}>
+            <div className={`border-b ${c.sidebarBorder} flex items-center justify-between pb-3`}>
+              <h3 className={`font-bold text-base ${c.text}`}>Add Checklist Tasks</h3>
               <button
                 onClick={() => setShowBulkModal(false)}
-                className="hover:text-gray-600 p-1 rounded-full text-gray-400 transition-colors"
+                className={`p-1 rounded-full ${c.mutedText} ${c.activityHover} transition-colors`}
               >
                 <X className="h-5 w-5" />
               </button>
@@ -936,47 +1257,181 @@ export default function ActivityDetailModal({
 
             <div className="space-y-3">
               <div>
-                <label className="block font-semibold mb-1 text-gray-700 text-xs">
+                <label className={`block font-semibold mb-1 ${c.text} text-xs`}>
                   Task List
                 </label>
                 <textarea
+                  ref={bulkTextareaRef}
                   value={bulkTaskInput}
                   onChange={(e) => setBulkTaskInput(e.target.value)}
-                  placeholder={"# Read Chapter 1\n# Write Summary\n# Solve Questions 1-5"}
-                  rows={6}
-                  className="border border-gray-200 focus:ring-2 focus:ring-blue-500 font-mono outline-none p-3 resize-none rounded-xl text-xs w-full"
+                  placeholder={"# Read Chapter 1 @2026-09-20\n# Write Summary\n# Solve Questions 1-5 @2026-09-22"}
+                  className={`${c.cardBg} ${c.text} border ${c.sidebarBorder} font-mono outline-none p-3 resize-none rounded-xl text-xs w-full min-h-[150px]`}
                 />
-                <p className="mt-1 text-[11px] text-gray-400">
-                  Prefix lines with <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-700">#</code> to define distinct tasks.
+                <p className={`mt-1 text-[11px] ${c.mutedText} leading-relaxed`}>
+                  Prefix lines with <code className={`${c.moduleHeader} px-1 py-0.5 rounded ${c.text}`}>#</code> for new items. Add <code className={`${c.moduleHeader} px-1 py-0.5 rounded ${c.text}`}>@YYYY-MM-DD</code> anywhere in a line to set a specific plan date.
                 </p>
-              </div>
-
-              <div>
-                <label className="block font-semibold mb-1 text-gray-700 text-xs">
-                  Plan Date for Created Tasks (Optional)
-                </label>
-                <input
-                  type="date"
-                  value={bulkPlanDate}
-                  onChange={(e) => setBulkPlanDate(e.target.value)}
-                  className="border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none px-3 py-2 rounded-xl text-xs w-full"
-                />
               </div>
             </div>
 
-            <div className="border-gray-100 border-t flex gap-2 items-center justify-end pt-2">
+            <div className={`border-t ${c.sidebarBorder} flex gap-2 items-center justify-end pt-2`}>
               <button
                 onClick={() => setShowBulkModal(false)}
-                className="font-semibold hover:bg-gray-100 px-4 py-2 rounded-xl text-gray-600 text-xs transition-colors"
+                className={`font-semibold px-4 py-2 rounded-xl ${c.mutedText} ${c.activityHover} text-xs transition-colors`}
               >
                 Cancel
               </button>
               <button
                 onClick={handleBulkAddTasks}
                 disabled={!bulkTaskInput.trim() || saving}
-                className="bg-blue-600 disabled:bg-gray-300 font-semibold hover:bg-blue-700 px-4 py-2 rounded-xl text-white text-xs transition-colors"
+                className={`${c.checkboxChecked} text-white disabled:opacity-50 font-semibold hover:opacity-90 px-4 py-2 rounded-xl text-xs transition-colors`}
               >
                 {saving ? 'Adding...' : 'Add Tasks'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Work Chunk Modal */}
+      {editingChunk && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-[60] flex items-center justify-center p-4">
+          <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4`}>
+            <div className="flex items-center justify-between">
+              <h3 className={`font-bold text-lg ${c.text}`}>Edit Work Session</h3>
+              <button
+                onClick={handleCancelEditChunk}
+                className={`p-1.5 rounded-full ${c.mutedText} ${c.activityHover} transition-colors`}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className={`block font-medium mb-1 ${c.statText} text-xs`}>Minutes Worked</label>
+                <input
+                  type="number"
+                  value={editChunkMinutes}
+                  onChange={(e) => setEditChunkMinutes(parseInt(e.target.value) || 0)}
+                  className={`${c.cardBg} ${c.text} border ${c.sidebarBorder} w-full outline-none px-2.5 py-1.5 rounded-lg text-sm`}
+                  min="0"
+                />
+              </div>
+
+              <div>
+                <label className={`block font-medium mb-1 ${c.statText} text-xs`}>Mood</label>
+                <select
+                  value={editChunkMood}
+                  onChange={(e) => setEditChunkMood(e.target.value)}
+                  className={`${c.cardBg} ${c.text} border ${c.sidebarBorder} w-full outline-none px-2.5 py-1.5 rounded-lg text-sm`}
+                >
+                  <option value="">None</option>
+                  <option value="struggled">😫 Struggled</option>
+                  <option value="okay">😐 Okay</option>
+                  <option value="good">🙂 Good</option>
+                  <option value="great">😊 Great</option>
+                  <option value="focused">🎯 Focused</option>
+                </select>
+              </div>
+
+              <div>
+                <label className={`block font-medium mb-1 ${c.statText} text-xs`}>Notes</label>
+                <textarea
+                  value={editChunkNotes}
+                  onChange={(e) => setEditChunkNotes(e.target.value)}
+                  className={`${c.cardBg} ${c.text} border ${c.sidebarBorder} w-full outline-none px-2.5 py-1.5 rounded-lg text-sm`}
+                  rows={3}
+                  placeholder="Add notes about this work session..."
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={handleCancelEditChunk}
+                className={`${c.moduleHeader} ${c.text} px-4 py-2 rounded-lg text-sm font-medium hover:opacity-80 transition-opacity`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveChunk}
+                className={`${c.checkboxChecked} text-white px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity`}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Work Session Modal */}
+      {showAddWorkSession && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-[60] flex items-center justify-center p-4">
+          <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4`}>
+            <div className="flex items-center justify-between">
+              <h3 className={`font-bold text-lg ${c.text}`}>Add Work Session</h3>
+              <button
+                onClick={() => setShowAddWorkSession(false)}
+                className={`p-1.5 rounded-full ${c.mutedText} ${c.activityHover} transition-colors`}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className={`block font-medium mb-1 ${c.statText} text-xs`}>Minutes Worked</label>
+                <input
+                  type="number"
+                  value={newSessionMinutes}
+                  onChange={(e) => setNewSessionMinutes(parseInt(e.target.value) || 0)}
+                  className={`${c.cardBg} ${c.text} border ${c.sidebarBorder} w-full outline-none px-2.5 py-1.5 rounded-lg text-sm`}
+                  min="1"
+                  placeholder="30"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className={`block font-medium mb-1 ${c.statText} text-xs`}>Mood (Optional)</label>
+                <select
+                  value={newSessionMood}
+                  onChange={(e) => setNewSessionMood(e.target.value)}
+                  className={`${c.cardBg} ${c.text} border ${c.sidebarBorder} w-full outline-none px-2.5 py-1.5 rounded-lg text-sm`}
+                >
+                  <option value="">None</option>
+                  <option value="struggled">😫 Struggled</option>
+                  <option value="okay">😐 Okay</option>
+                  <option value="good">🙂 Good</option>
+                  <option value="great">😊 Great</option>
+                  <option value="focused">🎯 Focused</option>
+                </select>
+              </div>
+
+              <div>
+                <label className={`block font-medium mb-1 ${c.statText} text-xs`}>Notes (Optional)</label>
+                <textarea
+                  value={newSessionNotes}
+                  onChange={(e) => setNewSessionNotes(e.target.value)}
+                  className={`${c.cardBg} ${c.text} border ${c.sidebarBorder} w-full outline-none px-2.5 py-1.5 rounded-lg text-sm`}
+                  rows={2}
+                  placeholder="What did you work on?"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setShowAddWorkSession(false)}
+                className={`${c.moduleHeader} ${c.text} px-4 py-2 rounded-lg text-sm font-medium hover:opacity-80 transition-opacity`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddWorkSession}
+                className={`${c.checkboxChecked} text-white px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity`}
+              >
+                Add Session
               </button>
             </div>
           </div>

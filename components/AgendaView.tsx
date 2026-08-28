@@ -1,31 +1,30 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import React from 'react';
 import {
   Clock,
   CheckCircle2,
-  Plus,
-  GraduationCap,
-  Trophy,
   Calendar,
   ChevronDown,
   ChevronUp,
   BookOpen,
-  Globe,
-  Trash2,
-  X,
   Play,
   Pause,
   Check,
-  BarChart3,
+  Sparkles,
+  Flame,
+  Star,
+  ArrowRight,
+  ChevronsRight,
+  ChevronsLeft,
+  AlertCircle
 } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import ActivityDetailModal from './ActivityDetailModal';
 import CourseSetupModal from './CourseSetupModal';
 import ActivityCreateModal from './ActivityCreateModal';
-import CalendarEventsTimeline from './CalendarEventsTimeline';
 import {
-  formatDateShort,
   getDateStr,
   formatDateLocal,
   formatTimestampLocal,
@@ -42,32 +41,49 @@ interface CalendarFeed {
 interface AgendaViewProps {
   kidId: number;
   selectedDate: Date;
+  selectedSchoolYear?: string;
 }
 
-export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
+export default function AgendaView({ kidId, selectedDate, selectedSchoolYear }: AgendaViewProps) {
   const { theme } = useTheme();
+  const colors = theme?.colors || {};
 
-  const c = theme?.colors || {
-    bg: 'bg-[#f4efe6]',
-    cardBg: 'bg-[#fcfaf7]',
-    card: 'bg-[#fcfaf7] border border-[#d4c5b0]',
-    text: 'text-[#3d3122]',
-    moduleHeader: 'bg-[#e6ddcd] hover:bg-[#ded2bf]',
-    moduleText: 'text-[#3d3122]',
-    moduleIcon: 'text-[#8c5a2b]',
-    moduleBorder: 'border-[#d4c5b0]',
-    workgroupHeader: 'bg-[#eee7db] hover:bg-[#e4dacb]',
-    workgroupText: 'text-[#2b2217]',
-    workgroupIcon: 'text-[#73421d]',
-    workgroupBg: 'bg-[#f7f3ec]',
-    activityHover: 'hover:bg-[#efe8dc] hover:border-[#b8a383]',
-    activityText: 'text-[#2c2318]',
-    activityIcon: 'text-[#8c5a2b]',
-    statText: 'text-[#615241]',
-    mutedText: 'text-[#7d6c59]',
-    divider: 'divide-[#e0d5c3] border-[#e0d5c3]',
-    checkboxBorder: 'border-[#b8a383]',
-    checkboxChecked: 'bg-[#8c5a2b] border-[#8c5a2b]',
+  // Map theme tokens directly using exact properties from ThemeColors
+  const c = {
+    ...colors,
+    bgPrimary: colors.bg || 'bg-[#f7f0e6]',
+    cardBg: colors.cardBg || 'bg-[#fdfbf7]',
+    textPrimary: colors.text || 'text-[#3b2d18]',
+    mutedText: colors.mutedText || 'text-[#806a49]',
+    statText: colors.statText || 'text-[#614d2e]',
+    card: colors.card || 'bg-[#fdfbf7] border border-[#d8c3a5]',
+    
+    // Header & Module tokens
+    moduleHeader: colors.moduleHeader || 'bg-[#ebdec9] hover:bg-[#dfceb3]',
+    moduleText: colors.moduleText || 'text-[#3b2d18]',
+    moduleIcon: colors.moduleIcon || 'text-[#a86c23]',
+    moduleBorder: colors.moduleBorder || 'border-[#d8c3a5]',
+
+    // Workgroup / Event Bar tokens
+    workgroupBg: colors.workgroupBg || 'bg-[#f9f3e9]',
+    workgroupHeader: colors.workgroupHeader || 'bg-[#f2e6d2] hover:bg-[#ebd8bc]',
+    workgroupText: colors.workgroupText || 'text-[#2c200e]',
+    workgroupIcon: colors.workgroupIcon || 'text-[#8a5312]',
+
+    // Interactive & Checkbox tokens
+    checkboxChecked: colors.checkboxChecked || 'bg-[#a86c23] border-[#a86c23]',
+    checkboxBorder: colors.checkboxBorder || 'border-[#c2a176] group-hover:border-[#a86c23]',
+    activityHover: colors.activityHover || 'hover:bg-[#f2e6d2] hover:border-[#c2a176]',
+    activityText: colors.activityText || 'text-[#3b2d18]',
+
+    // Divider & Fallbacks
+    divider: colors.divider || 'divide-[#e3d3ba] border-[#e3d3ba]',
+    dangerBg: 'bg-red-50',
+    dangerBorder: 'border-red-200',
+    dangerText: 'text-red-800',
+    successBg: 'bg-emerald-50',
+    successText: 'text-emerald-800',
+    success: '#22c55e',
   };
 
   const [loading, setLoading] = useState(true);
@@ -81,12 +97,6 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
   const [icalEvents, setIcalEvents] = useState<any[]>([]);
   const [googleEvents, setGoogleEvents] = useState<any[]>([]);
   const [googleConnected, setGoogleConnected] = useState(false);
-  const [isFeedModalOpen, setIsFeedModalOpen] = useState(false);
-  const [newFeedName, setNewFeedName] = useState('');
-  const [newFeedUrl, setNewFeedUrl] = useState('');
-  const [isSavingFeed, setIsSavingFeed] = useState(false);
-
-  const [activeEventId, setActiveEventId] = useState<string | number | null>(null);
 
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -95,14 +105,21 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
 
   const [todayWorkChunks, setTodayWorkChunks] = useState<any[]>([]);
   const [isWorkChunksModalOpen, setIsWorkChunksModalOpen] = useState(false);
+  const [expandedCourses, setExpandedCourses] = useState<Set<string>>(new Set());
+  const [expandedActivities, setExpandedActivities] = useState<Set<number>>(new Set());
+  const [activityChildren, setActivityChildren] = useState<Record<number, any[]>>({});
 
-  const [isBacklogOpen, setIsBacklogOpen] = useState(false);
-  const [backlogGroupBy, setBacklogGroupBy] = useState<'date' | 'course'>('date');
+  // Pagination state for schedule items
+  const [schedulePageIndex, setSchedulePageIndex] = useState(0);
+  const pageSize = 4;
 
   const selectedDateStr = useMemo(() => formatDateLocal(selectedDate), [selectedDate]);
 
   const formattedHeaderDate = useMemo(() => {
-    return selectedDate.toLocaleDateString('en-US', {
+    const dateObj = selectedDate instanceof Date ? selectedDate : new Date(selectedDate);
+    if (isNaN(dateObj.getTime())) return '';
+
+    return dateObj.toLocaleDateString('en-US', {
       weekday: 'long',
       month: 'short',
       day: 'numeric',
@@ -114,7 +131,8 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
     if (!kidId) return;
     setLoading(true);
     try {
-      const agendaRes = await fetch(`/api/agenda?kidId=${kidId}&date=${selectedDateStr}`);
+      const yearParam = selectedSchoolYear ? `&academicYear=${encodeURIComponent(selectedSchoolYear)}` : '';
+      const agendaRes = await fetch(`/api/agenda?kidId=${kidId}&date=${selectedDateStr}${yearParam}`);
       const data = await agendaRes.json();
 
       setOverdueActivities(data.overdue_activities || []);
@@ -147,7 +165,6 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
               ...e,
               feedName: feed.name,
               is_ical: true,
-
             }))
           )
           .catch(() => [])
@@ -160,53 +177,23 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
 
       setGoogleEvents(googleEventsData);
       setIcalEvents(parsedIcalResults.flat());
-      // Fetch today's work chunks for daily summary
+
       const chunksRes = await fetch(`/api/analytics?kidId=${kidId}&startDate=${selectedDateStr}&endDate=${selectedDateStr}`);
       if (chunksRes.ok) {
         const chunksData = await chunksRes.json();
         setTodayWorkChunks(chunksData.chunks || []);
       }
     } catch (error) {
-      console.error('Error loading agenda or iCal data:', error);
+      console.error('Error loading agenda data:', error);
     } finally {
       setLoading(false);
     }
-  }, [kidId, selectedDateStr]);
+  }, [kidId, selectedDateStr, selectedSchoolYear]);
 
   useEffect(() => {
     loadAgendaData();
+    setSchedulePageIndex(0);
   }, [kidId, selectedDate, loadAgendaData]);
-
-  const handleAddFeed = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newFeedName || !newFeedUrl) return;
-
-    try {
-      setIsSavingFeed(true);
-      await fetch('/api/calendars/ical', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kidId, name: newFeedName, url: newFeedUrl }),
-      });
-
-      setNewFeedName('');
-      setNewFeedUrl('');
-      await loadAgendaData();
-    } catch (error) {
-      console.error('Error adding feed:', error);
-    } finally {
-      setIsSavingFeed(false);
-    }
-  };
-
-  const handleDeleteFeed = async (feedId: number) => {
-    try {
-      await fetch(`/api/calendars/ical?feedId=${feedId}`, { method: 'DELETE' });
-      await loadAgendaData();
-    } catch (error) {
-      console.error('Error deleting feed:', error);
-    }
-  };
 
   const openActivityModal = (activity: any) => {
     if (activity.is_ical) return;
@@ -224,15 +211,44 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
     loadAgendaData();
   };
 
-  const focusActivities = useMemo(() => {
-    const overdueWithFlag = (overdueActivities || []).map((a) => ({ ...a, isOverdue: true }));
-    const todayWithFlag = (todayActivities || []).map((a) => ({ ...a, isOverdue: false }));
-    const map = new Map<number | string, any>();
-    [...overdueWithFlag, ...todayWithFlag].forEach((a) => {
-      if (a && a.id && !map.has(a.id)) map.set(a.id, a);
+  const courseGroups = useMemo(() => {
+    const groups = new Map<string, any[]>();
+
+    const allTodayActivities = [
+      ...(overdueActivities || []).map((a) => ({ ...a, isOverdue: true })),
+      ...(todayActivities || []),
+      ...(completedActivities || [])
+    ];
+
+    allTodayActivities.forEach((activity) => {
+      const courseName = activity.course_name || activity.course?.name || 'General';
+      if (!groups.has(courseName)) {
+        groups.set(courseName, []);
+      }
+      groups.get(courseName)!.push(activity);
     });
-    return Array.from(map.values());
-  }, [overdueActivities, todayActivities]);
+
+    return Array.from(groups.entries())
+      .map(([courseName, tasks]) => {
+        const totalTasks = tasks.length;
+        const completedTasks = tasks.filter(t => t.is_completed).length;
+        const hasOverdue = tasks.some(t => t.isOverdue && !t.is_completed);
+
+        return {
+          courseName,
+          tasks,
+          totalTasks,
+          completedTasks,
+          allComplete: completedTasks === totalTasks,
+          hasOverdue,
+        };
+      })
+      .sort((a, b) => {
+        if (a.hasOverdue && !b.hasOverdue) return -1;
+        if (!a.hasOverdue && b.hasOverdue) return 1;
+        return a.courseName.localeCompare(b.courseName);
+      });
+  }, [overdueActivities, todayActivities, completedActivities]);
 
   const todaysAscendingEvents = useMemo(() => {
     const todayStr = selectedDateStr;
@@ -266,140 +282,32 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
     });
   }, [scheduledClasses, icalEvents, googleEvents, selectedDateStr]);
 
-  const backlogGroupedByCourse = useMemo(() => {
-    const map = new Map<string, any[]>();
-    (nextModuleActivities || []).forEach((activity) => {
-      const courseName = activity.course_name || activity.course?.name || 'General / Other';
-      if (!map.has(courseName)) map.set(courseName, []);
-      map.get(courseName)!.push(activity);
-    });
+  const visibleScheduleEvents = useMemo(() => {
+    const start = schedulePageIndex * pageSize;
+    return todaysAscendingEvents.slice(start, start + pageSize);
+  }, [todaysAscendingEvents, schedulePageIndex, pageSize]);
 
-    return Array.from(map.entries()).map(([courseName, activities]) => ({
-      groupKey: courseName,
-      activities: activities.sort(
-        (a, b) =>
-          new Date(a.plan_date || a.start_time || 0).getTime() -
-          new Date(b.plan_date || b.start_time || 0).getTime()
-      ),
-    }));
-  }, [nextModuleActivities]);
-
-  const backlogGroupedByDate = useMemo(() => {
-    const map = new Map<string, any[]>();
-    (nextModuleActivities || []).forEach((activity) => {
-      const rawDate = activity.plan_date || activity.start_time;
-      const dateKey = rawDate ? getDateStr(rawDate) : 'Unscheduled';
-      if (!map.has(dateKey)) map.set(dateKey, []);
-      map.get(dateKey)!.push(activity);
-    });
-
-    const sortedEntries = Array.from(map.entries()).sort(([dateA], [dateB]) => {
-      if (dateA === 'Unscheduled') return 1;
-      if (dateB === 'Unscheduled') return -1;
-      return new Date(dateA).getTime() - new Date(dateB).getTime();
-    });
-
-    return sortedEntries.map(([dateKey, activities]) => ({
-      groupKey: dateKey,
-      displayName: dateKey === 'Unscheduled' ? 'Unscheduled / Someday' : formatDateShort(dateKey),
-      activities: activities.sort(
-        (a, b) =>
-          new Date(a.plan_date || a.start_time || 0).getTime() -
-          new Date(b.plan_date || b.start_time || 0).getTime()
-      ),
-    }));
-  }, [nextModuleActivities]);
-
-  const moveFocusItem = async (index: number, direction: 'up' | 'down') => {
-    const newIndex = direction === 'up' ? index - 1 : index + 1;
-    if (newIndex < 0 || newIndex >= focusActivities.length) return;
-
-    const updated = [...focusActivities];
-    const [movedItem] = updated.splice(index, 1);
-    updated.splice(newIndex, 0, movedItem);
-
-    setTodayActivities(updated);
-
-    try {
-      const updates = updated.map((activity, idx) =>
-        fetch('/api/activities', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            activityId: activity.id,
-            updates: { position: idx },
-          }),
-        })
-      );
-      await Promise.all(updates);
-    } catch (error) {
-      console.error('Error updating positions:', error);
-      loadAgendaData();
-    }
-  };
-
-  const handleDragStart = (e: React.DragEvent, activity: any, sourceList: string) => {
-    e.dataTransfer.setData('text/plain', JSON.stringify({ activity, sourceList }));
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-  };
-
-  const handleDropOnFocus = async (e: React.DragEvent) => {
-    e.preventDefault();
-    try {
-      const dataStr = e.dataTransfer.getData('text/plain');
-      if (!dataStr) return;
-      const { activity, sourceList } = JSON.parse(dataStr);
-      if (sourceList === 'backlog') {
-        await fetch('/api/activities', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            activityId: activity.id,
-            updates: { plan_date: selectedDateStr },
-          }),
-        });
-        loadAgendaData();
-      }
-    } catch (err) {
-      console.error('Error dropping item into focus:', err);
-    }
-  };
-
-  const handleDropOnBacklog = async (e: React.DragEvent, targetDateKey?: string) => {
-    e.preventDefault();
-    if (backlogGroupBy !== 'date' || !targetDateKey) return;
-
-    try {
-      const dataStr = e.dataTransfer.getData('text/plain');
-      if (!dataStr) return;
-      const { activity, sourceList } = JSON.parse(dataStr);
-
-      if (sourceList === 'focus' || sourceList === 'backlog') {
-        const newPlanDate = targetDateKey === 'Unscheduled' ? null : targetDateKey;
-        const currentPlanDate = activity.plan_date ? getDateStr(activity.plan_date) : 'Unscheduled';
-        if (currentPlanDate === targetDateKey) return;
-
-        await fetch('/api/activities', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            activityId: activity.id,
-            updates: { plan_date: newPlanDate },
-          }),
-        });
-        loadAgendaData();
-      }
-    } catch (err) {
-      console.error('Error dropping item into backlog bin:', err);
-    }
-  };
+  const hasMoreNext = (schedulePageIndex + 1) * pageSize < todaysAscendingEvents.length;
+  const hasMorePrev = schedulePageIndex > 0;
 
   const handleStartWork = async (activity: any, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
+      // Create a new work chunk
+      await fetch('/api/work-chunks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          activity_id: activity.id,
+          kid_id: kidId,
+          start_time: new Date().toISOString(),
+          is_active: true,
+          is_manual: false,
+          minutes_worked: 0,
+        }),
+      });
+
+      // Update activity to mark as in progress
       await fetch('/api/activities', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -408,6 +316,7 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
           updates: { start_time: formatTimestampLocal(new Date()) },
         }),
       });
+
       await loadAgendaData();
     } catch (error) {
       console.error('Error starting work:', error);
@@ -417,6 +326,33 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
   const handlePauseWork = async (activity: any, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
+      // Get active work chunk
+      const chunksRes = await fetch(`/api/work-chunks?activity_id=${activity.id}&is_active=true`);
+      const chunksData = await chunksRes.json();
+      const activeChunk = chunksData.chunks?.[0];
+
+      if (activeChunk) {
+        // Calculate minutes worked
+        const startTime = new Date(activeChunk.start_time);
+        const endTime = new Date();
+        const minutesWorked = Math.max(0, Math.round((endTime.getTime() - startTime.getTime()) / 60000));
+
+        // Stop the work chunk
+        await fetch('/api/work-chunks', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chunkId: activeChunk.id,
+            updates: {
+              end_time: new Date().toISOString(),
+              is_active: false,
+              minutes_worked: minutesWorked,
+            },
+          }),
+        });
+      }
+
+      // Clear activity start_time
       await fetch('/api/activities', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -425,6 +361,7 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
           updates: { start_time: null },
         }),
       });
+
       await loadAgendaData();
     } catch (error) {
       console.error('Error pausing work:', error);
@@ -435,21 +372,38 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
     e.stopPropagation();
     const nowTimestamp = formatTimestampLocal(new Date());
 
-    let calculatedActualMinutes = activity.actual_minutes;
-    if (
-      activity.start_time &&
-      (activity.actual_minutes === null || activity.actual_minutes === undefined)
-    ) {
-      const { date: startDate } = parseLocalTimestamp(activity.start_time);
-      if (startDate && !isNaN(startDate.getTime()) && startDate.getFullYear() > 2020) {
-        const elapsedMs = new Date().getTime() - startDate.getTime();
-        calculatedActualMinutes = Math.max(0, Math.round(elapsedMs / 60000));
-      } else {
-        calculatedActualMinutes = null;
-      }
-    }
-
     try {
+      // First, stop any active work chunk
+      const chunksRes = await fetch(`/api/work-chunks?activity_id=${activity.id}&is_active=true`);
+      const chunksData = await chunksRes.json();
+      const activeChunk = chunksData.chunks?.[0];
+
+      let calculatedActualMinutes = activity.actual_minutes;
+
+      if (activeChunk) {
+        // Calculate minutes worked
+        const startTime = new Date(activeChunk.start_time);
+        const endTime = new Date();
+        const minutesWorked = Math.max(0, Math.round((endTime.getTime() - startTime.getTime()) / 60000));
+
+        // Stop the work chunk
+        await fetch('/api/work-chunks', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chunkId: activeChunk.id,
+            updates: {
+              end_time: new Date().toISOString(),
+              is_active: false,
+              minutes_worked: minutesWorked,
+            },
+          }),
+        });
+
+        calculatedActualMinutes = minutesWorked;
+      }
+
+      // Mark activity as complete
       await fetch('/api/activities', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -459,6 +413,7 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
             is_completed: true,
             completed_at: nowTimestamp,
             end_time: nowTimestamp,
+            start_time: null,
             actual_minutes: calculatedActualMinutes,
           },
         }),
@@ -469,20 +424,60 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
     }
   };
 
-  const toggleEventActive = (eventId: string | number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setActiveEventId((prev) => (prev === eventId ? null : eventId));
+  const loadActivityChildren = async (activityId: number) => {
+    try {
+      const response = await fetch(`/api/activities?parent_id=${activityId}`);
+      if (response.ok) {
+        const data = await response.json();
+        const tasks = data.filter((child: any) => child.activity_type === 'task');
+        setActivityChildren(prev => ({ ...prev, [activityId]: tasks }));
+        return tasks;
+      }
+    } catch (error) {
+      console.error('Error loading activity children:', error);
+    }
+    return [];
   };
 
-  // Helper functions for daily summary
-  const getChunkMinutes = (chunk: any): number => {
-    if (chunk.minutes_worked) return chunk.minutes_worked;
-    if (chunk.start_time && chunk.end_time) {
-      const start = new Date(chunk.start_time);
-      const end = new Date(chunk.end_time);
-      return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+  const toggleActivityExpansion = async (activityId: number) => {
+    const isExpanded = expandedActivities.has(activityId);
+    const newExpanded = new Set(expandedActivities);
+
+    if (isExpanded) {
+      newExpanded.delete(activityId);
+    } else {
+      newExpanded.add(activityId);
+      // Load children if not already loaded
+      if (!activityChildren[activityId]) {
+        await loadActivityChildren(activityId);
+      }
     }
-    return 0;
+
+    setExpandedActivities(newExpanded);
+  };
+
+  const handleToggleChildTask = async (childId: number, currentCompleted: boolean, parentActivityId: number) => {
+    const nowTimestamp = formatTimestampLocal(new Date());
+
+    try {
+      await fetch('/api/activities', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          activityId: childId,
+          updates: {
+            is_completed: !currentCompleted,
+            completed_at: !currentCompleted ? nowTimestamp : null,
+          },
+        }),
+      });
+
+      // Reload children for this parent
+      await loadActivityChildren(parentActivityId);
+      await loadAgendaData();
+    } catch (error) {
+      console.error('Error toggling child task:', error);
+    }
   };
 
   const formatTime = (minutes: number): string => {
@@ -492,476 +487,355 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
     return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
   };
 
-  const todayTotalMinutes = todayWorkChunks.reduce((sum, chunk) => sum + getChunkMinutes(chunk), 0);
-  const todayMoods = todayWorkChunks.filter(c => c.mood).map(c => c.mood);
-  const mostCommonMood = todayMoods.length > 0
-    ? todayMoods.sort((a, b) =>
-        todayMoods.filter(m => m === b).length - todayMoods.filter(m => m === a).length
-      )[0]
-    : null;
-
-
-  // Helper function to format time range
-  const formatTimeRange = (startTime: string | null, endTime: string | null): string => {
-    if (!startTime || !endTime) return 'Unknown time';
-    const start = new Date(startTime);
-    const end = new Date(endTime);
-    return `${start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} - ${end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+  const formatEventTime = (isoString?: string) => {
+    if (!isoString) return '';
+    const date = new Date(isoString.replace(' ', 'T'));
+    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   };
 
-  // Helper function to get mood emoji
-  const getMoodEmoji = (mood: string | null): string => {
-    if (!mood) return '';
-    const moodMap: { [key: string]: string } = {
-      'struggled': '😫',
-      'okay': '😐',
-      'good': '🙂',
-      'great': '😊',
-      'focused': '🎯'
-    };
-    return moodMap[mood] || '';
-  };
+  const todayTotalMinutes = todayWorkChunks.reduce((sum, chunk) => {
+    if (chunk.minutes_worked) return sum + chunk.minutes_worked;
+    if (chunk.start_time && chunk.end_time) {
+      const start = new Date(chunk.start_time);
+      const end = new Date(chunk.end_time);
+      return sum + Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+    }
+    return sum;
+  }, 0);
 
   if (loading) {
     return (
-      <div className={`flex h-full w-full items-center justify-center min-h-[400px] ${c.bg}`}>
-        <div
-          className={`animate-spin rounded-full h-8 w-8 border-b-2 ${
-            c.checkboxChecked ? c.checkboxChecked.split(' ')[0].replace('bg-', 'border-') : 'border-current'
-          }`}
-        />
+      <div className={`flex h-full items-center justify-center min-h-[400px] w-full ${c.bgPrimary}`}>
+        <div className={`animate-spin border-4 border-b-current border-l-current border-r-current border-t-transparent h-10 rounded-full w-10 ${c.moduleIcon}`} />
       </div>
     );
   }
 
   return (
-    <div className={`w-full min-h-screen flex flex-col ${c.bg} ${c.text}`}>
-      {/* Header Bar */}
-      <div className={`${c.cardBg} border-b ${c.divider} px-6 py-4 w-full`}>
+    <div className={`flex flex-col min-h-screen w-full ${c.bgPrimary} ${c.textPrimary}`}>
+      {/* Outer Header Bar matching outer theme background */}
+      <div className={`px-6 py-4 ${c.bgPrimary}`}>
         <div className="flex items-center justify-between max-w-[1500px] mx-auto w-full">
-          <div>
-            <h1 className={`text-2xl font-bold tracking-tight ${c.moduleText}`}>Agenda Board</h1>
-            <p className={`font-medium text-xs mt-0.5 ${c.mutedText}`}>{formattedHeaderDate}</p>
+          <div className="flex gap-3 items-center">
+            <div className={`p-2 rounded-2xl ${c.moduleHeader}`}>
+              <Sparkles className={`h-6 w-6 ${c.moduleIcon}`} />
+            </div>
+            <div>
+              <h1 className={`font-extrabold text-xl tracking-tight ${c.moduleText}`}>
+                {formattedHeaderDate}
+              </h1>
+              <p className={`font-medium text-xs ${c.mutedText}`}>
+                Ready to tackle today's goals?
+              </p>
+            </div>
           </div>
-          <div className="flex gap-2 items-center">
-            {/* Daily Summary Button */}
+
+          <div className="flex gap-2.5 items-center">
             {todayWorkChunks.length > 0 && (
               <button
                 onClick={() => setIsWorkChunksModalOpen(true)}
-                className={`flex items-center gap-2 px-3 py-1.5 border ${c.moduleBorder} rounded-lg text-xs font-medium ${c.moduleText} ${c.cardBg} ${c.activityHover} transition-all`}
+                className={`border flex font-bold gap-2 items-center px-3.5 py-2 rounded-xl text-xs transition-all ${c.moduleHeader} ${c.moduleBorder} ${c.moduleText}`}
               >
-                <BarChart3 className={`h-3.5 w-3.5 ${c.moduleIcon}`} />
-                <span>{formatTime(todayTotalMinutes)} worked</span>
-                <span className="text-gray-400">•</span>
-                <span>{completedActivities.length} done</span>
+                <Flame className={`fill-current h-4 w-4 ${c.moduleIcon}`} />
+                <span>{formatTime(todayTotalMinutes)} Worked</span>
               </button>
             )}
-            <button
-              onClick={() => setIsFeedModalOpen(true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 border ${c.moduleBorder} rounded-lg text-xs font-medium ${c.moduleText} ${c.cardBg} ${c.activityHover} transition-all`}
-            >
-              <Globe className={`h-3.5 w-3.5 ${c.moduleIcon}`} />
-              <span>iCal Feeds ({feeds.length})</span>
-            </button>
-            <button
-              onClick={() => setIsCourseModalOpen(true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 border ${c.moduleBorder} rounded-lg text-xs font-medium ${c.moduleText} ${c.cardBg} ${c.activityHover} transition-all`}
-            >
-              <GraduationCap className={`h-3.5 w-3.5 ${c.moduleIcon}`} />
-              <span>New Course</span>
-            </button>
-            <button
-              onClick={() => setIsAddActivityModalOpen(true)}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 ${c.checkboxChecked} text-white rounded-lg hover:opacity-95 transition-all text-xs font-semibold shadow-xs`}
-            >
-              <Plus className="h-4 w-4" />
-              <span>Add Activity</span>
-            </button>
           </div>
         </div>
       </div>
 
+      {/* Main Content Area */}
+      <div className="flex-1 max-w-[1500px] mx-auto p-6 space-y-5 w-full">
 
-
-
-      {/* Main Board - 12-Column Layout Grid */}
-      <div className="flex-1 max-w-[1500px] mx-auto p-6 space-y-6 w-full">
-        <div className="gap-5 grid grid-cols-1 items-start lg:grid-cols-12">
-          
-          {/* COLUMN 1 (3/12): Calendar Schedule */}
-          <div className={`lg:col-span-3 rounded-xl border ${c.moduleBorder} ${c.cardBg} flex flex-col shadow-xs overflow-hidden`}>
-            <div className={`px-3.5 py-3 border-b ${c.divider} flex items-center justify-between ${c.workgroupBg}`}>
+        {/* Schedule Bar */}
+        {todaysAscendingEvents.length > 0 && (
+          <div className={`border flex flex-col gap-2.5 p-3.5 rounded-2xl shadow-2xs transition-colors w-full ${c.card}`}>
+            <div className="flex items-center justify-between">
               <div className="flex gap-2 items-center">
-                <Calendar className={`h-4 w-4 ${c.workgroupIcon}`} />
-                <span className={`text-xs font-bold uppercase tracking-wider ${c.workgroupText}`}>
-                  Schedule ({todaysAscendingEvents.length})
-                </span>
+                <Calendar className={`h-4 w-4 ${c.moduleIcon}`} />
+                <h2 className={`font-extrabold text-xs tracking-wider uppercase ${c.textPrimary}`}>
+                  Schedule
+                </h2>
               </div>
-            </div>
-
-            <div className="max-h-[600px] overflow-y-auto">
-              <CalendarEventsTimeline
-                events={todaysAscendingEvents}
-                activeEventId={activeEventId}
-                onToggleActive={toggleEventActive}
-                onEventClick={openActivityModal}
-                theme={theme}
-              />
-            </div>
-          </div>
-
-          {/* COLUMN 2 (5/12): Focus To-Do List */}
-          <div
-            onDragOver={handleDragOver}
-            onDrop={handleDropOnFocus}
-            className={`lg:col-span-5 rounded-xl border ${c.moduleBorder} ${c.cardBg} flex flex-col shadow-xs overflow-hidden`}
-          >
-            <div className={`px-3.5 py-3 border-b ${c.divider} flex items-center justify-between ${c.workgroupBg}`}>
-              <div className="flex gap-2 items-center">
-                <Clock className={`h-4 w-4 ${c.workgroupIcon}`} />
-                <span className={`text-xs font-bold uppercase tracking-wider ${c.workgroupText}`}>
-                  Focus To-Do ({focusActivities.filter((a) => !a.is_completed).length})
+              
+              {todaysAscendingEvents.length > pageSize && (
+                <span className={`font-bold text-[10px] ${c.statText}`}>
+                  Showing {schedulePageIndex * pageSize + 1}-
+                  {Math.min((schedulePageIndex + 1) * pageSize, todaysAscendingEvents.length)} of {todaysAscendingEvents.length}
                 </span>
-              </div>
+              )}
             </div>
 
-            <div className="max-h-[600px] overflow-y-auto p-3 space-y-2">
-              {focusActivities.filter((a) => !a.is_completed).length === 0 ? (
-                <div className={`text-xs ${c.mutedText} py-12 text-center italic`}>
-                  No tasks set for today.
-                </div>
-              ) : (
-                focusActivities
-                  .filter((a) => !a.is_completed)
-                  .map((activity, index) => {
-                    const isWorking = Boolean(activity.start_time);
+            <div className="flex gap-2 items-center overflow-hidden w-full">
+              {/* Prev Button */}
+              {hasMorePrev && (
+                <button
+                  onClick={() => setSchedulePageIndex(prev => prev - 1)}
+                  className={`border flex font-bold gap-1 hover:opacity-90 items-center px-2 py-1.5 rounded-xl shrink-0 text-xs transition-all ${c.moduleHeader} ${c.moduleBorder} ${c.moduleText}`}
+                  title="Previous events"
+                >
+                  <ChevronsLeft className={`h-4 w-4 ${c.moduleIcon}`} />
+                </button>
+              )}
 
-                    return (
-                      <div
-                        key={activity.id}
-                        draggable
-                        onDragStart={(e) => handleDragStart(e, activity, 'focus')}
-                        onClick={() => openActivityModal(activity)}
-                        className={`rounded-lg border p-2.5 flex items-center justify-between cursor-pointer transition-all shadow-2xs ${
-                          isWorking
-                            ? `${c.moduleBorder} ${c.moduleHeader} ring-1 ring-amber-500/40`
-                            : `${c.divider} ${c.workgroupBg} ${c.activityHover}`
-                        }`}
-                      >
-                        <div
-                          className={`flex flex-col gap-0.5 shrink-0 ${c.mutedText} mr-2`}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            onClick={() => moveFocusItem(index, 'up')}
-                            disabled={index === 0}
-                            className="disabled:opacity-20 hover:opacity-100 leading-none text-[10px]"
-                          >
-                            ▲
-                          </button>
-                          <button
-                            onClick={() => moveFocusItem(index, 'down')}
-                            disabled={index === focusActivities.length - 1}
-                            className="disabled:opacity-20 hover:opacity-100 leading-none text-[10px]"
-                          >
-                            ▼
-                          </button>
-                        </div>
+              {/* Sequential Event List */}
+              {visibleScheduleEvents.map((ev, idx) => {
+                const startTime = formatEventTime(ev.start_time);
+                const endTime = formatEventTime(ev.end_time);
+                const isLastVisible = idx === visibleScheduleEvents.length - 1;
 
-                        <div className="flex-1 min-w-0 pr-2">
-                          <div className="flex gap-1.5 items-center">
-                            {activity.isOverdue && (
-                              <span className={`border ${c.moduleBorder} ${c.cardBg} text-amber-800 font-bold px-1 py-0.2 rounded text-[8px] uppercase`}>
-                                Overdue
-                              </span>
-                            )}
-                            {isWorking && (
-                              <span className={`${c.checkboxChecked} text-white font-bold px-1 py-0.2 rounded text-[8px] uppercase animate-pulse`}>
-                                Active
-                              </span>
-                            )}
-                            <span className={`text-xs font-semibold ${c.activityText} truncate`}>
-                              {activity.title}
-                            </span>
-                          </div>
-                          <p className={`text-[10px] ${c.statText} truncate mt-0.5`}>
-                            {activity.course_name || 'General'}
-                          </p>
-                        </div>
+                return (
+                  <div key={ev.id || ev.title || idx} className="flex flex-1 gap-2 items-center min-w-0">
+                    <div
+                      onClick={() => openActivityModal(ev)}
+                      className={`border cursor-pointer flex gap-2 hover:shadow-2xs items-center min-w-0 px-2.5 py-1.5 rounded-xl transition-all w-full ${c.workgroupBg} ${c.moduleBorder}`}
+                    >
+                      <span className={`font-bold px-1.5 py-0.5 rounded-md shrink-0 text-[10px] whitespace-nowrap ${c.moduleHeader} ${c.moduleText}`}>
+                        {startTime}
+                      </span>
 
-                        {/* Streamlined Action Buttons */}
-                        <div className="flex gap-1 items-center shrink-0">
-                          {!isWorking ? (
-                            <button
-                              onClick={(e) => handleStartWork(activity, e)}
-                              className={`flex items-center gap-1 border ${c.moduleBorder} hover:bg-emerald-50 text-emerald-800 font-semibold px-2 py-1 rounded text-[11px] transition-colors`}
-                            >
-                              <Play className="fill-current h-3 w-3" />
-                              <span>Start</span>
-                            </button>
-                          ) : (
-                            <>
-                              <button
-                                onClick={(e) => handlePauseWork(activity, e)}
-                                className={`border ${c.moduleBorder} bg-white hover:bg-slate-50 text-slate-700 font-medium px-2 py-1 rounded text-[11px] transition-colors`}
-                              >
-                                <Pause className="h-3 w-3" />
-                              </button>
-                              <button
-                                onClick={(e) => handleCompleteWork(activity, e)}
-                                className={`${c.checkboxChecked} text-white font-medium px-2 py-1 rounded text-[11px] hover:opacity-90 transition-opacity flex items-center gap-0.5`}
-                              >
-                                <Check className="h-3 w-3" />
-                                <span>Done</span>
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })
+                      <span className={`font-bold text-xs truncate ${c.workgroupText}`}>
+                        {ev.title}
+                      </span>
+
+                      {endTime && (
+                        <span className={`font-semibold shrink-0 text-[10px] whitespace-nowrap ${c.mutedText}`}>
+                          – {endTime}
+                        </span>
+                      )}
+                    </div>
+
+                    {(!isLastVisible || hasMoreNext) && (
+                      <ArrowRight className={`h-3.5 opacity-40 shrink-0 w-3.5 ${c.mutedText}`} />
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Next Button */}
+              {hasMoreNext && (
+                <button
+                  onClick={() => setSchedulePageIndex(prev => prev + 1)}
+                  className={`border flex font-bold gap-1 hover:opacity-90 items-center px-2.5 py-1.5 rounded-xl shrink-0 text-xs transition-all ${c.moduleHeader} ${c.moduleBorder} ${c.moduleText}`}
+                  title="Next events"
+                >
+                  <ChevronsRight className={`h-4 w-4 ${c.moduleIcon}`} />
+                </button>
               )}
             </div>
           </div>
+        )}
 
-          {/* COLUMN 3 (4/12): Completed Tasks */}
-          <div className={`lg:col-span-4 rounded-xl border ${c.moduleBorder} ${c.cardBg} flex flex-col shadow-xs overflow-hidden`}>
-            <div className={`px-3.5 py-3 border-b ${c.divider} flex items-center justify-between ${c.workgroupBg}`}>
-              <div className="flex gap-2 items-center">
-                <Trophy className={`h-4 w-4 ${c.workgroupIcon}`} />
-                <span className={`text-xs font-bold uppercase tracking-wider ${c.workgroupText}`}>
-                  Completed ({completedActivities.length})
-                </span>
-              </div>
-            </div>
+        {/* Course Grid with Equal Height Alignment */}
+        {courseGroups.length === 0 ? (
+          <div className={`border-2 border-dashed py-16 rounded-2xl text-center transition-colors ${c.card}`}>
+            <Star className="animate-bounce h-10 mb-2 mx-auto text-amber-500 w-10" />
+            <p className={`font-bold text-base ${c.textPrimary}`}>All caught up!</p>
+            <p className={`mt-0.5 text-xs ${c.mutedText}`}>No school assignments scheduled for today.</p>
+          </div>
+        ) : (
+          <div className="gap-4 grid grid-cols-1 items-stretch lg:grid-cols-3 md:grid-cols-2">
+            {courseGroups.map((group) => {
+              const isExpanded = expandedCourses.has(group.courseName) || !group.allComplete;
+              const toggleExpand = () => {
+                const newSet = new Set(expandedCourses);
+                if (newSet.has(group.courseName)) {
+                  newSet.delete(group.courseName);
+                } else {
+                  newSet.add(group.courseName);
+                }
+                setExpandedCourses(newSet);
+              };
 
-            <div className="max-h-[600px] overflow-y-auto p-3 space-y-2">
-              {completedActivities.length === 0 ? (
-                <div className={`text-xs ${c.mutedText} py-12 text-center italic`}>
-                  No completed tasks yet.
-                </div>
-              ) : (
-                completedActivities.map((activity) => (
-                  <div
-                    key={activity.id}
-                    onClick={() => openActivityModal(activity)}
-                    className={`rounded-lg border ${c.divider} ${c.workgroupBg} p-2.5 flex items-center justify-between cursor-pointer ${c.activityHover} shadow-2xs`}
+              return (
+                <div
+                  key={group.courseName}
+                  className={`border flex flex-col h-full overflow-hidden rounded-2xl transition-all ${c.card}`}
+                >
+                  <button
+                    onClick={toggleExpand}
+                    className={`border-b flex gap-2 hover:opacity-95 items-center justify-between p-3.5 shrink-0 transition-opacity w-full ${c.workgroupHeader} ${c.moduleBorder}`}
                   >
-                    <div className="flex gap-2 items-center min-w-0 pr-2">
-                      <CheckCircle2 className={`h-3.5 w-3.5 shrink-0 text-emerald-600`} />
-                      <span className={`line-through ${c.mutedText} text-xs truncate`}>
-                        {activity.title}
+                    <div className="flex gap-2.5 items-center min-w-0">
+                      <div className={`p-1.5 rounded-lg shadow-2xs shrink-0 ${c.cardBg}`}>
+                        <BookOpen className={`h-4 w-4 ${c.workgroupIcon}`} />
+                      </div>
+                      <span className={`font-extrabold text-left text-xs truncate ${c.workgroupText}`}>
+                        {group.courseName}
                       </span>
                     </div>
-                    <span className={`text-[10px] ${c.statText} shrink-0`}>
-                      {activity.course_name}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
 
-        </div>
-
-        {/* BACKLOG QUEUE DRAWER */}
-        <div className={`rounded-xl border ${c.moduleBorder} ${c.cardBg} shadow-xs overflow-hidden`}>
-          <div className={`w-full px-4 py-3 flex items-center justify-between ${c.workgroupBg}`}>
-            <button
-              onClick={() => setIsBacklogOpen(!isBacklogOpen)}
-              className="flex flex-1 gap-2 items-center text-left"
-            >
-              <Clock className={`h-4 w-4 ${c.workgroupIcon}`} />
-              <span className={`text-xs font-bold uppercase tracking-wider ${c.workgroupText}`}>
-                Coming Up
-              </span>
-            </button>
-
-            <div className="flex gap-3 items-center" onClick={(e) => e.stopPropagation()}>
-              <div className={`flex items-center rounded-lg border ${c.moduleBorder} p-0.5 text-[11px] ${c.cardBg}`}>
-                <button
-                  onClick={() => setBacklogGroupBy('date')}
-                  className={`px-2 py-0.5 rounded font-medium transition-all ${
-                    backlogGroupBy === 'date' ? `${c.checkboxChecked} text-white` : `${c.mutedText} hover:opacity-80`
-                  }`}
-                >
-                  By Date
-                </button>
-                <button
-                  onClick={() => setBacklogGroupBy('course')}
-                  className={`px-2 py-0.5 rounded font-medium transition-all ${
-                    backlogGroupBy === 'course' ? `${c.checkboxChecked} text-white` : `${c.mutedText} hover:opacity-80`
-                  }`}
-                >
-                  By Course
-                </button>
-              </div>
-
-              <span className={`font-bold px-2 py-0.5 rounded-full text-xs ${c.cardBg} ${c.moduleText} border ${c.moduleBorder}`}>
-                {nextModuleActivities.length}
-              </span>
-
-              <button onClick={() => setIsBacklogOpen(!isBacklogOpen)}>
-                {isBacklogOpen ? <ChevronUp className={`h-4 w-4 ${c.workgroupIcon}`} /> : <ChevronDown className={`h-4 w-4 ${c.workgroupIcon}`} />}
-              </button>
-            </div>
-          </div>
-
-          {isBacklogOpen && (
-            <div className={`border-t ${c.divider} p-3.5 space-y-4`}>
-              {nextModuleActivities.length === 0 ? (
-                <p className={`text-xs ${c.mutedText} text-center py-4 italic`}>No backlog items found.</p>
-              ) : backlogGroupBy === 'date' ? (
-                <div className="gap-3 grid grid-cols-1 lg:grid-cols-5 md:grid-cols-3 sm:grid-cols-2">
-                  {backlogGroupedByDate.map((group) => (
-                    <div
-                      key={group.groupKey}
-                      onDragOver={handleDragOver}
-                      onDrop={(e) => handleDropOnBacklog(e, group.groupKey)}
-                      className={`rounded-lg border ${c.moduleBorder} ${c.workgroupBg} p-2.5 flex flex-col justify-between`}
-                    >
-                      <div className={`border-b ${c.divider} flex items-center justify-between mb-2 pb-1.5`}>
-                        <div className="flex gap-1.5 items-center min-w-0">
-                          <Calendar className={`h-3.5 w-3.5 shrink-0 ${c.workgroupIcon}`} />
-                          <h4 className={`text-[10px] font-bold uppercase tracking-wider ${c.workgroupText} truncate`}>
-                            {group.displayName}
-                          </h4>
-                        </div>
-                        <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${c.cardBg} border ${c.moduleBorder} ${c.mutedText} shrink-0`}>
-                          {group.activities.length}
+                    <div className="flex gap-2 items-center shrink-0">
+                      {group.allComplete ? (
+                        <span className={`flex font-bold gap-1 items-center px-2 py-0.5 rounded-full shadow-2xs text-[10px] ${c.successBg} ${c.successText}`}>
+                          <CheckCircle2 className="h-3 w-3" /> Done
                         </span>
-                      </div>
-
-                      <div className="flex-1 min-h-[50px] space-y-1.5">
-                        {group.activities.map((activity) => (
-                          <div
-                            key={activity.id}
-                            draggable
-                            onDragStart={(e) => handleDragStart(e, activity, 'backlog')}
-                            onClick={() => openActivityModal(activity)}
-                            className={`rounded border ${c.divider} ${c.cardBg} p-2 shadow-2xs cursor-pointer ${c.activityHover} transition-all`}
-                          >
-                            <div className={`text-[11px] font-medium ${c.activityText} truncate`}>{activity.title}</div>
-                            <p className={`text-[9px] ${c.statText} truncate mt-0.5`}>{activity.course_name || 'General'}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex gap-3 overflow-x-auto pb-2">
-                  {backlogGroupedByCourse.map((group) => (
-                    <div
-                      key={group.groupKey}
-                      className={`w-64 shrink-0 rounded-lg border ${c.moduleBorder} ${c.workgroupBg} p-2.5 flex flex-col justify-between`}
-                    >
-                      <div className={`border-b ${c.divider} flex items-center justify-between mb-2 pb-1.5`}>
-                        <div className="flex gap-1.5 items-center min-w-0">
-                          <BookOpen className={`h-3.5 w-3.5 shrink-0 ${c.workgroupIcon}`} />
-                          <h4 className={`text-[10px] font-bold uppercase tracking-wider ${c.workgroupText} truncate`} title={group.groupKey}>
-                            {group.groupKey}
-                          </h4>
-                        </div>
-                        <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${c.cardBg} border ${c.moduleBorder} ${c.mutedText} shrink-0`}>
-                          {group.activities.length}
+                      ) : (
+                        <span className={`border font-bold px-2 py-0.5 rounded-full text-[10px] ${c.cardBg} ${c.statText} ${c.moduleBorder}`}>
+                          {group.completedTasks}/{group.totalTasks}
                         </span>
-                      </div>
-
-                      <div className="flex-1 min-h-[50px] space-y-1.5">
-                        {group.activities.map((activity) => (
-                          <div
-                            key={activity.id}
-                            draggable
-                            onDragStart={(e) => handleDragStart(e, activity, 'backlog')}
-                            onClick={() => openActivityModal(activity)}
-                            className={`rounded border ${c.divider} ${c.cardBg} p-2 shadow-2xs cursor-pointer ${c.activityHover} transition-all`}
-                          >
-                            <div className={`text-[11px] font-medium ${c.activityText} truncate`}>{activity.title}</div>
-                            <p className={`text-[9px] ${c.statText} truncate mt-0.5`}>
-                              {activity.plan_date ? formatDateShort(activity.plan_date) : 'Unscheduled'}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
+                      )}
+                      {isExpanded ? (
+                        <ChevronUp className={`h-4 w-4 ${c.mutedText}`} />
+                      ) : (
+                        <ChevronDown className={`h-4 w-4 ${c.mutedText}`} />
+                      )}
                     </div>
-                  ))}
+                  </button>
+
+                  {isExpanded && (
+                    <div className={`flex flex-1 flex-col justify-start p-3 space-y-2 transition-colors ${c.cardBg}`}>
+                      {group.tasks.map((activity) => {
+                        const isWorking = Boolean(activity.start_time);
+                        const isOverdue = activity.isOverdue && !activity.is_completed;
+                        const isCompleted = activity.is_completed;
+
+                        // Use child_tasks from SQL if available, otherwise fallback to activityChildren state
+                        const children = activity.child_tasks || activityChildren[activity.id] || [];
+                        const hasTaskChildren = children.length > 0;
+                        const isExpanded = expandedActivities.has(activity.id);
+
+                        return (
+                          <div key={activity.id} className="space-y-1">
+                            <div
+                              onClick={() => openActivityModal(activity)}
+                              className={`p-2.5 rounded-xl flex items-center justify-between cursor-pointer border transition-all ${
+                                isCompleted
+                                  ? 'opacity-60 border-transparent'
+                                  : `${c.activityHover}`
+                              } ${isWorking ? 'ring-2 ring-amber-500' : ''}`}
+                            >
+                              <div className="flex flex-1 gap-2.5 items-center min-w-0 pr-2">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isCompleted) {
+                                      fetch('/api/activities', {
+                                        method: 'PATCH',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                          activityId: activity.id,
+                                          updates: { is_completed: false, completed_at: null },
+                                        }),
+                                      }).then(() => loadAgendaData());
+                                    } else {
+                                      handleCompleteWork(activity, e);
+                                    }
+                                  }}
+                                  className={`border-2 flex h-5 items-center justify-center rounded-full shrink-0 transition-all w-5 ${c.checkboxBorder} ${
+                                    isCompleted ? c.checkboxChecked : ''
+                                  }`}
+                                >
+                                  {isCompleted && <Check className="h-3 stroke-[3] text-white w-3" />}
+                                </button>
+
+                                {hasTaskChildren && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleActivityExpansion(activity.id);
+                                    }}
+                                    className={`shrink-0 ${c.mutedText} hover:opacity-70 transition-opacity`}
+                                  >
+                                    {isExpanded ? (
+                                      <ChevronDown className="h-4 w-4" />
+                                    ) : (
+                                      <ChevronUp className="h-4 w-4" />
+                                    )}
+                                  </button>
+                                )}
+
+                                <div className="flex flex-col min-w-0">
+                                  <div className="flex gap-1 items-center min-w-0">
+                                    {isOverdue && (
+                                      <AlertCircle className="h-3.5 shrink-0 text-red-500 w-3.5" />
+                                    )}
+                                    <span className={`text-xs font-bold truncate ${
+                                      isCompleted
+                                        ? 'line-through'
+                                        : c.activityText
+                                    }`}>
+                                      {activity.title}
+                                    </span>
+                                    {hasTaskChildren && (
+                                      <span className={`text-[10px] font-medium ${c.mutedText}`}>
+                                        ({children.filter((child: any) => child.is_completed).length}/{children.length})
+                                      </span>
+                                    )}
+                                  </div>
+                                  {activity.estimated_minutes && (
+                                    <span className={`font-semibold opacity-75 text-[10px] ${c.mutedText}`}>
+                                      ⏱️ {activity.estimated_minutes}m
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {!isCompleted && (
+                                <div className="flex items-center shrink-0">
+                                  {!isWorking ? (
+                                    <button
+                                      onClick={(e) => handleStartWork(activity, e)}
+                                      className={`active:scale-95 flex font-bold gap-1 hover:opacity-90 items-center px-2.5 py-1 rounded-lg text-[11px] transition-all ${c.checkboxChecked} text-white`}
+                                    >
+                                      <Play className="fill-current h-2.5 w-2.5" /> Start
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={(e) => handlePauseWork(activity, e)}
+                                      className="active:scale-95 bg-amber-600 flex font-bold gap-1 hover:opacity-90 items-center px-2.5 py-1 rounded-lg text-[11px] text-white transition-all"
+                                    >
+                                      <Pause className="h-2.5 w-2.5" /> Pause
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Child Tasks */}
+                            {hasTaskChildren && isExpanded && (
+                              <div className="ml-10 space-y-1">
+                                {children.map((child: any) => (
+                                  <div
+                                    key={child.id}
+                                    onClick={() => openActivityModal(child)}
+                                    className={`p-2 rounded-lg flex items-center gap-2 cursor-pointer transition-all ${c.activityHover}`}
+                                  >
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleToggleChildTask(child.id, child.is_completed, activity.id);
+                                      }}
+                                      className={`border-2 flex h-4 items-center justify-center rounded-full shrink-0 transition-all w-4 ${c.checkboxBorder} ${
+                                        child.is_completed ? c.checkboxChecked : ''
+                                      }`}
+                                    >
+                                      {child.is_completed && <Check className="h-2.5 stroke-[3] text-white w-2.5" />}
+                                    </button>
+                                    <span className={`text-[11px] font-medium ${
+                                      child.is_completed
+                                        ? 'line-through opacity-60'
+                                        : c.activityText
+                                    }`}>
+                                      {child.title}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          )}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {/* iCal Feeds Modal */}
-      {isFeedModalOpen && (
-        <div className="bg-black/50 fixed flex inset-0 items-center justify-center p-4 z-50">
-          <div className={`w-full max-w-md ${c.cardBg} rounded-xl shadow-xl border ${c.divider} p-5 space-y-4`}>
-            <div className={`border-b ${c.divider} flex items-center justify-between pb-3`}>
-              <div className="flex gap-2 items-center">
-                <Globe className={`h-5 w-5 ${c.moduleIcon}`} />
-                <h3 className={`text-base font-semibold ${c.moduleText}`}>Manage iCal Feeds</h3>
-              </div>
-              <button onClick={() => setIsFeedModalOpen(false)}>
-                <X className={`h-5 w-5 ${c.mutedText}`} />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddFeed} className="space-y-3">
-              <div>
-                <label className={`block font-medium mb-1 text-xs ${c.moduleText}`}>Feed Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g., Varsity Soccer, High School Schedule"
-                  value={newFeedName}
-                  onChange={(e) => setNewFeedName(e.target.value)}
-                  className={`border ${c.moduleBorder} ${c.cardBg} ${c.activityText} focus:outline-none p-2 rounded-lg text-xs w-full`}
-                  required
-                />
-              </div>
-              <div>
-                <label className={`block font-medium mb-1 text-xs ${c.moduleText}`}>iCal URL (.ics)</label>
-                <input
-                  type="url"
-                  placeholder="https://calendar.google.com/calendar/ical/..."
-                  value={newFeedUrl}
-                  onChange={(e) => setNewFeedUrl(e.target.value)}
-                  className={`border ${c.moduleBorder} ${c.cardBg} ${c.activityText} focus:outline-none p-2 rounded-lg text-xs w-full`}
-                  required
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={isSavingFeed}
-                className={`${c.checkboxChecked} disabled:opacity-50 flex font-semibold gap-1.5 hover:opacity-90 items-center justify-center py-2 rounded-lg text-white text-xs transition-colors w-full`}
-              >
-                <Plus className="h-4 w-4" /> Add Feed
-              </button>
-            </form>
-
-            <div className={`border-t ${c.divider} pt-2 space-y-2`}>
-              <h4 className={`font-semibold text-xs ${c.mutedText}`}>Connected Feeds</h4>
-              {feeds.length === 0 ? (
-                <p className={`italic text-xs ${c.mutedText}`}>No feeds linked.</p>
-              ) : (
-                feeds.map((feed) => (
-                  <div key={feed.id} className={`${c.cardBg} border ${c.moduleBorder} flex items-center justify-between p-2 rounded-lg text-xs`}>
-                    <div className="min-w-0 pr-2">
-                      <p className={`font-semibold truncate ${c.moduleText}`}>{feed.name}</p>
-                      <p className={`text-[10px] truncate ${c.mutedText}`}>{feed.url}</p>
-                    </div>
-                    <button onClick={() => handleDeleteFeed(feed.id)} className={`p-1 ${c.mutedText} hover:opacity-100`}>
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Detail Modals */}
+      {/* Modals */}
       {isModalOpen && selectedActivity && (
         <ActivityDetailModal
           activity={selectedActivity}
@@ -988,89 +862,6 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
           onSave={loadAgendaData}
         />
       )}
-
-      {/* Work Chunks Modal */}
-      {isWorkChunksModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setIsWorkChunksModalOpen(false)}>
-          <div className={`${c.cardBg} rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col`} onClick={(e) => e.stopPropagation()}>
-            {/* Modal Header */}
-            <div className={`px-6 py-4 border-b ${c.divider} flex items-center justify-between`}>
-              <div className="flex items-center gap-2">
-                <BarChart3 className={`h-5 w-5 ${c.moduleIcon}`} />
-                <h2 className={`text-lg font-bold ${c.moduleText}`}>Work Summary</h2>
-              </div>
-              <button
-                onClick={() => setIsWorkChunksModalOpen(false)}
-                className={`p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors`}
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-6 overflow-y-auto">
-              {/* Summary Stats */}
-              <div className="grid grid-cols-3 gap-4 mb-6">
-                <div className={`${c.cardBg} border ${c.moduleBorder} rounded-lg p-4 text-center`}>
-                  <div className={`text-2xl font-bold ${c.moduleText}`}>{formatTime(todayTotalMinutes)}</div>
-                  <div className={`text-xs ${c.mutedText} mt-1`}>Total Time</div>
-                </div>
-                <div className={`${c.cardBg} border ${c.moduleBorder} rounded-lg p-4 text-center`}>
-                  <div className={`text-2xl font-bold text-emerald-600`}>{completedActivities.length}</div>
-                  <div className={`text-xs ${c.mutedText} mt-1`}>Completed Tasks</div>
-                </div>
-                <div className={`${c.cardBg} border ${c.moduleBorder} rounded-lg p-4 text-center`}>
-                  <div className={`text-2xl font-bold ${c.moduleText}`}>{todayWorkChunks.length}</div>
-                  <div className={`text-xs ${c.mutedText} mt-1`}>Work Sessions</div>
-                </div>
-              </div>
-
-              {/* Work Sessions List */}
-              <div>
-                <h3 className={`text-sm font-bold ${c.moduleText} mb-3`}>Work Sessions</h3>
-                <div className="space-y-3">
-                  {todayWorkChunks.map((chunk) => (
-                    <div
-                      key={chunk.id}
-                      className={`${c.cardBg} border ${c.moduleBorder} rounded-lg p-4`}
-                    >
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex-1">
-                          <div className={`font-medium ${c.moduleText} text-sm`}>
-                            {chunk.activity_title}
-                          </div>
-                          {chunk.course_name && (
-                            <div className={`text-xs ${c.mutedText} mt-0.5`}>
-                              {chunk.course_name}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {chunk.mood && (
-                            <span className="text-lg">{getMoodEmoji(chunk.mood)}</span>
-                          )}
-                          <span className={`text-sm font-bold ${c.moduleText}`}>
-                            {formatTime(getChunkMinutes(chunk))}
-                          </span>
-                        </div>
-                      </div>
-                      <div className={`text-xs ${c.mutedText}`}>
-                        {formatTimeRange(chunk.start_time, chunk.end_time)}
-                      </div>
-                      {chunk.notes && (
-                        <div className={`mt-2 text-xs ${c.text} bg-gray-50 dark:bg-gray-800 rounded p-2`}>
-                          {chunk.notes}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }

@@ -121,3 +121,37 @@ export async function PATCH(request: NextRequest) {
     );
   }
 }
+
+// DELETE /api/work-chunks - Delete a work chunk
+export async function DELETE(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { chunkId } = body;
+
+    if (!chunkId || typeof chunkId !== 'number') {
+      return NextResponse.json(
+        { error: 'Valid chunkId is required' },
+        { status: 400 }
+      );
+    }
+
+    const supabase = await getServerClient();
+    const { error } = await supabase
+      .from('activity_work_chunks')
+      .delete()
+      .eq('id', chunkId);
+
+    if (error) {
+      console.error('Error deleting work chunk:', error);
+      throw error;
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error('API /api/work-chunks DELETE error:', error);
+    return NextResponse.json(
+      { error: error.message || String(error) },
+      { status: 500 }
+    );
+  }
+}

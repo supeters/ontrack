@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/lib/supabase/client';
 
-// GET /api/agenda?kidId=xxx&date=2026-05-04
+// GET /api/agenda?kidId=xxx&date=2026-05-04&academicYear=2024-2025
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const kidId = searchParams.get('kidId');
   const date = searchParams.get('date');
+  const academicYear = searchParams.get('academicYear');
 
   if (!kidId || !date) {
     return NextResponse.json(
@@ -21,6 +22,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await supabase.rpc('get_agenda_data', {
       p_kid_id: parseInt(kidId),
       p_date: date,
+      p_academic_year: academicYear || null,
     });
 
     if (error) {

@@ -1,21 +1,28 @@
-/**
- * Parse checklist items from user input
- * Each line beginning with # becomes a separate checklist item
- *
- * Example input:
- * # read xyz
- * book of odyssey
- *
- * # memorize poem
- * write a essay
- *
- * Becomes 2 items: "read xyz book of odyssey" and "memorize poem write a essay"
- */
-
 export interface ChecklistItem {
   text: string;
   order: number;
   is_completed: boolean;
+  planDate?: string;
+}
+
+/**
+ * Helper to extract @YYYY-MM-DD or @YYYY/MM/DD dates from text
+ */
+function extractAndCleanDate(input: string): { cleanText: string; planDate?: string } {
+  // Matches @YYYY-MM-DD, @YYYY/MM/DD, @MM-DD-YYYY, or @MM/DD/YYYY
+  const dateRegex = /@(\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4})/;
+  const match = input.match(dateRegex);
+
+  if (!match) {
+    return { cleanText: input.trim() };
+  }
+
+  // Normalize slashes to hyphens (e.g., 2026/09/20 -> 2026-09-20)
+  const planDate = match[1].replace(/\//g, '-');
+  // Remove the @date string from the item text
+  const cleanText = input.replace(dateRegex, '').replace(/\s+/g, ' ').trim();
+
+  return { cleanText, planDate };
 }
 
 /**
@@ -27,7 +34,7 @@ export function parseChecklistInput(input: string): ChecklistItem[] {
   if (!input || !input.trim()) return [];
 
   const lines = input.split('\n');
-  const items: ChecklistItem[] = [];
+  const rawItems: string[] = [];
   let currentItem: string | null = null;
 
   for (const line of lines) {
@@ -38,11 +45,7 @@ export function parseChecklistInput(input: string): ChecklistItem[] {
     if (trimmedLine.startsWith('#')) {
       // New checklist item - save previous if exists
       if (currentItem !== null) {
-        items.push({
-          text: currentItem.trim(),
-          order: items.length,
-          is_completed: false
-        });
+        rawItems.push(currentItem.trim());
       }
 
       // Start new item (remove leading # and whitespace)
@@ -51,17 +54,22 @@ export function parseChecklistInput(input: string): ChecklistItem[] {
       // Continuation of current item
       currentItem += ' ' + trimmedLine;
     }
-    // If line doesn't start with # and no current item, ignore it
   }
 
-  // Don't forget the last item
+  // Save the last item
   if (currentItem !== null) {
-    items.push({
-      text: currentItem.trim(),
-      order: items.length,
-      is_completed: false
-    });
+    rawItems.push(currentItem.trim());
   }
 
-  return items;
+  // Process each raw item to extract @date annotations
+  return rawItems.map((rawText, index) => {
+    const { cleanText, planDate } = extractAndCleanDate(rawText);
+
+    return {
+      text: cleanText,
+      order: index,
+      is_completed: false,
+      planDate,
+    };
+  });
 }

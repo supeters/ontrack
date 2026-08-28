@@ -1,3 +1,17 @@
+CREATE OR REPLACE FUNCTION public.get_agenda_data(
+  p_kid_id INTEGER,
+  p_date TEXT,
+  p_academic_year TEXT DEFAULT NULL
+)
+RETURNS TABLE (
+  today_activities JSONB,
+  overdue_activities JSONB,
+  scheduled_classes JSONB,
+  next_module_activities JSONB,
+  completed_activities JSONB
+)
+LANGUAGE plpgsql
+AS $$
 DECLARE
   v_target_date DATE;
   v_today_activities JSONB;
@@ -13,44 +27,67 @@ BEGIN
   SELECT COALESCE(jsonb_agg(
     to_jsonb(a.*) || jsonb_build_object(
       'course_name', c.course_name,
-      'module_title', m.title
+      'module_title', m.title,
+      'child_tasks', child_tasks.tasks,
+      'child_task_count', child_tasks.total_count,
+      'child_completed_count', child_tasks.completed_count
     ) ORDER BY COALESCE(a.position, 999999), a.plan_date, a.title
   ), '[]'::jsonb)
   INTO v_today_activities
   FROM public.activities a
   LEFT JOIN public.courses c ON a.course_id = c.id
-  LEFT JOIN public.school_calendars sc ON sc.id = c.calendar_id
+  LEFT JOIN public.school_calendars sc ON c.calendar_id = sc.id
   LEFT JOIN public.activities m ON a.module_id = m.id
+  LEFT JOIN LATERAL (
+    SELECT
+      COALESCE(jsonb_agg(to_jsonb(child.*) ORDER BY child.position, child.title), '[]'::jsonb) AS tasks,
+      COUNT(*) AS total_count,
+      COUNT(*) FILTER (WHERE child.is_completed = true) AS completed_count
+    FROM public.activities child
+    WHERE child.parent_activity_id = a.id
+      AND child.activity_type = 'task'
+      AND child.is_deleted = false
+  ) child_tasks ON true
   WHERE a.kid_id = p_kid_id
     AND a.plan_date = v_target_date
     AND a.is_action = true
     AND a.is_deleted = false
     AND a.is_hidden = false
     AND a.is_completed = false
-    AND (sc.start_date IS NULL OR sc.start_date <= v_target_date)
-    AND (sc.end_date IS NULL OR sc.end_date >= v_target_date);
+    AND (p_academic_year IS NULL OR sc.school_year_name = p_academic_year OR a.course_id IS NULL);
 
   -- 2. Get overdue actionable activities (before target date, uncompleted)
   SELECT COALESCE(jsonb_agg(
     to_jsonb(a.*) || jsonb_build_object(
       'course_name', c.course_name,
-      'module_title', m.title
+      'module_title', m.title,
+      'child_tasks', child_tasks.tasks,
+      'child_task_count', child_tasks.total_count,
+      'child_completed_count', child_tasks.completed_count
     ) ORDER BY COALESCE(a.position, 999999), a.plan_date, a.title
   ), '[]'::jsonb)
   INTO v_overdue_activities
   FROM public.activities a
   LEFT JOIN public.courses c ON a.course_id = c.id
- LEFT JOIN public.activities m ON a.module_id = m.id
-  LEFT JOIN public.school_calendars sc ON sc.id = c.calendar_id
+  LEFT JOIN public.school_calendars S ON S.id = C.Calendar_id
+  LEFT JOIN public.activities m ON a.module_id = m.id
+  LEFT JOIN LATERAL (
+    SELECT
+      COALESCE(jsonb_agg(to_jsonb(child.*) ORDER BY child.position, child.title), '[]'::jsonb) AS tasks,
+      COUNT(*) AS total_count,
+      COUNT(*) FILTER (WHERE child.is_completed = true) AS completed_count
+    FROM public.activities child
+    WHERE child.parent_activity_id = a.id
+      AND child.activity_type = 'task'
+      AND child.is_deleted = false
+  ) child_tasks ON true
   WHERE a.kid_id = p_kid_id
     AND a.plan_date < CURRENT_DATE
     AND a.is_completed = false
     AND a.is_action = true
     AND a.is_deleted = false
-    AND (sc.start_date IS NULL OR sc.start_date <= v_target_date)
-    AND (sc.end_date IS NULL OR sc.end_date >= v_target_date)
     AND a.is_hidden = false
-    AND a.activity_type NOT IN ('module', 'workgroup');
+    AND (p_academic_year IS NULL OR S.school_year_name = p_academic_year OR a.course_id IS NULL);
 
 
   -- 3. Get scheduled classes for the current week
@@ -60,3 +97,98 @@ BEGIN
       (v_target_date - (EXTRACT(DOW FROM v_target_date)::int * INTERVAL '1 day'))::date AS week_start,
       (v_target_date + ((6 - EXTRACT(DOW FROM v_target_date)::int) * INTERVAL '1 day'))::date AS week_end
   
+  )
+  SELECT COALESCE(jsonb_agg(
+    to_jsonb(a.*) || jsonb_build_object('course_name', c.course_name)
+    ORDER BY a.plan_date, a.start_time
+  ), '[]'::jsonb)
+  INTO v_scheduled_classes
+  FROM public.activities a
+  CROSS JOIN week_bounds wb
+  LEFT JOIN public.courses c ON a.course_id = c.id
+  LEFT JOIN public.school_calendars sc ON c.calendar_id = sc.id
+  WHERE a.kid_id = p_kid_id
+    AND a.plan_date BETWEEN wb.week_start AND wb.week_end
+    AND a.start_time IS NOT NULL and a.activity_type not in ('class', 'event')
+    AND a.is_deleted = false
+    AND a.is_hidden = false
+    AND (p_academic_year IS NULL OR sc.school_year_name = p_academic_year OR a.course_id IS NULL);
+
+  -- 4. Get activities for next 7 days
+  SELECT COALESCE(jsonb_agg(
+    to_jsonb(a.*) || jsonb_build_object(
+      'course_name', c.course_name,
+      'module_title', m.title,
+      'child_tasks', child_tasks.tasks,
+      'child_task_count', child_tasks.total_count,
+      'child_completed_count', child_tasks.completed_count
+    ) ORDER BY a.plan_date, c.course_name, COALESCE(m.title, ''), a.title
+  ), '[]'::jsonb)
+  INTO v_next_module_activities
+  FROM public.activities a
+  LEFT JOIN public.courses c ON a.course_id = c.id
+  LEFT JOIN public.school_calendars sc ON c.calendar_id = sc.id
+  LEFT JOIN public.activities m ON a.module_id = m.id
+  LEFT JOIN LATERAL (
+    SELECT
+      COALESCE(jsonb_agg(to_jsonb(child.*) ORDER BY child.position, child.title), '[]'::jsonb) AS tasks,
+      COUNT(*) AS total_count,
+      COUNT(*) FILTER (WHERE child.is_completed = true) AS completed_count
+    FROM public.activities child
+    WHERE child.parent_activity_id = a.id
+      AND child.activity_type = 'task'
+      AND child.is_deleted = false
+  ) child_tasks ON true
+  WHERE a.kid_id = p_kid_id
+    AND a.plan_date > v_target_date
+    AND a.plan_date <= v_target_date + 7
+    AND a.is_completed = false
+    AND a.is_action = true
+    AND a.is_deleted = false
+    AND a.is_hidden = false
+    AND a.activity_type NOT IN ('module', 'workgroup')
+    AND (p_academic_year IS NULL OR sc.school_year_name = p_academic_year OR a.course_id IS NULL);
+
+  -- 5. Completed activities for target date (plan_date = target, regardless of when completed)
+  SELECT COALESCE(jsonb_agg(
+    to_jsonb(a.*) || jsonb_build_object(
+      'course_name', c.course_name,
+      'module_title', m.title,
+      'child_tasks', child_tasks.tasks,
+      'child_task_count', child_tasks.total_count,
+      'child_completed_count', child_tasks.completed_count
+    ) ORDER BY c.course_name, COALESCE(m.title, ''), a.plan_date, a.title
+  ), '[]'::jsonb)
+  INTO v_completed_activities
+  FROM public.activities a
+  LEFT JOIN public.courses c ON a.course_id = c.id
+  LEFT JOIN public.school_calendars sc ON c.calendar_id = sc.id
+  LEFT JOIN public.activities m ON a.module_id = m.id
+  LEFT JOIN LATERAL (
+    SELECT
+      COALESCE(jsonb_agg(to_jsonb(child.*) ORDER BY child.position, child.title), '[]'::jsonb) AS tasks,
+      COUNT(*) AS total_count,
+      COUNT(*) FILTER (WHERE child.is_completed = true) AS completed_count
+    FROM public.activities child
+    WHERE child.parent_activity_id = a.id
+      AND child.activity_type = 'task'
+      AND child.is_deleted = false
+  ) child_tasks ON true
+  WHERE a.kid_id = p_kid_id
+    AND a.plan_date = v_target_date
+    AND a.is_completed = true
+    AND a.is_action = true
+    AND a.is_deleted = false
+    AND a.is_hidden = false
+    AND a.activity_type NOT IN ('module', 'workgroup')
+    AND (p_academic_year IS NULL OR sc.school_year_name = p_academic_year OR a.course_id IS NULL);
+
+  -- Return explicitly named columns
+  RETURN QUERY SELECT
+    v_today_activities,
+    v_overdue_activities,
+    v_scheduled_classes,
+    v_next_module_activities,
+    v_completed_activities;
+END;
+$$;

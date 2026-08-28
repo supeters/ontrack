@@ -72,7 +72,7 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
 
   // Pagination state for schedule items
   const [schedulePageIndex, setSchedulePageIndex] = useState(0);
-  const pageSize = 4; // Max events to show per row page
+  const pageSize = 4; // Max schedule items per slice
 
   const selectedDateStr = useMemo(() => formatDateLocal(selectedDate), [selectedDate]);
 
@@ -149,7 +149,7 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
 
   useEffect(() => {
     loadAgendaData();
-    setSchedulePageIndex(0); // Reset page on date change
+    setSchedulePageIndex(0);
   }, [kidId, selectedDate, loadAgendaData]);
 
   const openActivityModal = (activity: any) => {
@@ -239,7 +239,6 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
     });
   }, [scheduledClasses, icalEvents, googleEvents, selectedDateStr]);
 
-  // Paginate schedule items
   const visibleScheduleEvents = useMemo(() => {
     const start = schedulePageIndex * pageSize;
     return todaysAscendingEvents.slice(start, start + pageSize);
@@ -347,54 +346,30 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
     return (
       <div 
         className="flex h-full items-center justify-center min-h-[400px] w-full"
-        style={{ backgroundColor: theme?.bgPrimary || '#f8fafc' }}
+        style={{ backgroundColor: c.bgPrimary }}
       >
         <div 
-          className="animate-spin border-4 border-t-transparent h-10 rounded-full w-10"
-          style={{ borderColor: theme?.primary || '#9333ea', borderTopColor: 'transparent' }}
+          className="animate-spin border-4 border-b-current border-l-current border-r-current border-t-transparent h-10 rounded-full w-10"
+          style={{ color: c.primary }}
         />
       </div>
     );
   }
 
   return (
-    <div 
-      className="duration-200 flex flex-col font-sans min-h-screen transition-colors w-full"
-      style={{ 
-        backgroundColor: theme?.bgPrimary || '#f8fafc', 
-        color: theme?.textPrimary || '#1e293b' 
-      }}
-    >
-      {/* Top Header Bar */}
-      <div 
-        className="border-b duration-200 px-6 py-4 shadow-2xs transition-colors"
-        style={{ 
-          backgroundColor: theme?.cardBg || '#ffffff', 
-          borderColor: theme?.border || '#e2e8f0' 
-        }}
-      >
+    <div className={`flex flex-col min-h-screen w-full ${c.bg} ${c.text}`}>
+      {/* Header Bar */}
+      <div className={`border-b px-6 py-4 ${c.cardBg} ${c.divider}`}>
         <div className="flex items-center justify-between max-w-[1500px] mx-auto w-full">
           <div className="flex gap-3 items-center">
-            <div 
-              className="p-2 rounded-2xl"
-              style={{ 
-                backgroundColor: theme?.primaryLight || '#f3e8ff', 
-                color: theme?.primary || '#9333ea' 
-              }}
-            >
-              <Sparkles className="h-6 w-6" />
+            <div className={`p-2 rounded-2xl ${c.moduleHeader}`}>
+              <Sparkles className={`h-6 w-6 ${c.moduleIcon}`} />
             </div>
             <div>
-              <h1 
-                className="font-extrabold text-xl tracking-tight"
-                style={{ color: theme?.textPrimary || '#1e293b' }}
-              >
+              <h1 className={`font-extrabold text-xl tracking-tight ${c.moduleText}`}>
                 {formattedHeaderDate}
               </h1>
-              <p 
-                className="font-medium text-xs"
-                style={{ color: theme?.textSecondary || '#64748b' }}
-              >
+              <p className={`font-medium text-xs ${c.mutedText}`}>
                 Ready to tackle today's goals?
               </p>
             </div>
@@ -404,49 +379,32 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
             {todayWorkChunks.length > 0 && (
               <button
                 onClick={() => setIsWorkChunksModalOpen(true)}
-                className="border flex font-bold gap-2 items-center px-3.5 py-2 rounded-xl shadow-2xs text-xs transition-all"
-                style={{
-                  backgroundColor: theme?.primaryLight || '#f3e8ff',
-                  borderColor: theme?.primaryBorder || '#e9d5ff',
-                  color: theme?.primary || '#9333ea'
-                }}
+                className={`border flex font-bold gap-2 items-center px-3.5 py-2 rounded-xl text-xs transition-all ${c.moduleHeader} ${c.moduleBorder} ${c.moduleText}`}
               >
-                <Flame className="fill-current h-4 w-4" />
+                <Flame className={`fill-current h-4 w-4 ${c.moduleIcon}`} />
                 <span>{formatTime(todayTotalMinutes)} Worked</span>
               </button>
             )}
 
             <button
               onClick={() => setIsFeedModalOpen(true)}
-              className="flex font-bold gap-1.5 items-center px-3.5 py-2 rounded-xl text-xs transition-all"
-              style={{
-                backgroundColor: theme?.buttonSecondaryBg || '#f1f5f9',
-                color: theme?.textPrimary || '#334155'
-              }}
+              className={`flex font-bold gap-1.5 items-center px-3.5 py-2 rounded-xl text-xs transition-all ${c.moduleHeader} ${c.moduleText}`}
             >
-              <Globe className="h-4 opacity-70 w-4" />
+              <Globe className={`h-4 w-4 ${c.moduleIcon}`} />
               <span>Feeds</span>
             </button>
 
             <button
               onClick={() => setIsCourseModalOpen(true)}
-              className="flex font-bold gap-1.5 items-center px-3.5 py-2 rounded-xl text-xs transition-all"
-              style={{
-                backgroundColor: theme?.buttonSecondaryBg || '#f1f5f9',
-                color: theme?.textPrimary || '#334155'
-              }}
+              className={`flex font-bold gap-1.5 items-center px-3.5 py-2 rounded-xl text-xs transition-all ${c.moduleHeader} ${c.moduleText}`}
             >
-              <GraduationCap className="h-4 opacity-70 w-4" />
+              <GraduationCap className={`h-4 w-4 ${c.moduleIcon}`} />
               <span>New Course</span>
             </button>
 
             <button
               onClick={() => setIsAddActivityModalOpen(true)}
-              className="active:scale-95 flex font-bold gap-1.5 items-center px-4 py-2 rounded-xl shadow-sm text-xs transition-all"
-              style={{
-                backgroundColor: theme?.primary || '#9333ea',
-                color: theme?.buttonText || '#ffffff'
-              }}
+              className={`active:scale-95 flex font-bold gap-1.5 items-center px-4 py-2 rounded-xl shadow-sm text-xs transition-all ${c.checkboxChecked} text-white`}
             >
               <Plus className="h-4 stroke-[3] w-4" />
               <span>Add Task</span>
@@ -458,14 +416,14 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
       {/* Main Content Area */}
       <div className="flex-1 max-w-[1500px] mx-auto p-6 space-y-5 w-full">
 
-        {/* Schedule Block - Paginated Inline Flow */}
+        {/* Schedule Bar - Interactive Pagination Flow */}
         {todaysAscendingEvents.length > 0 && (
           <div 
             className="border flex flex-col gap-2.5 p-3.5 rounded-2xl shadow-2xs transition-colors w-full"
             style={{
-              backgroundColor: theme?.primaryLight || '#f3e8ff',
-              borderColor: theme?.primaryBorder || '#e9d5ff',
-              color: theme?.primary || '#9333ea'
+              backgroundColor: c.primaryLight,
+              borderColor: c.primaryBorder,
+              color: c.primary
             }}
           >
             <div className="flex items-center justify-between">
@@ -484,7 +442,6 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
               )}
             </div>
 
-            {/* Single horizontal row with pagination triggers */}
             <div className="flex gap-2 items-center overflow-hidden w-full">
               {/* Prev Button (<<) */}
               {hasMorePrev && (
@@ -492,9 +449,9 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
                   onClick={() => setSchedulePageIndex(prev => prev - 1)}
                   className="border flex font-bold gap-1 hover:opacity-90 items-center px-2 py-1.5 rounded-xl shadow-2xs shrink-0 text-xs transition-all"
                   style={{
-                    backgroundColor: theme?.cardBg || '#ffffff',
-                    borderColor: theme?.primaryBorder || '#e9d5ff',
-                    color: theme?.primary || '#9333ea'
+                    backgroundColor: c.cardBg,
+                    borderColor: c.primaryBorder,
+                    color: c.primary
                   }}
                   title="Previous events"
                 >
@@ -502,7 +459,7 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
                 </button>
               )}
 
-              {/* Event Items */}
+              {/* Sequential Event List */}
               {visibleScheduleEvents.map((ev, idx) => {
                 const startTime = formatEventTime(ev.start_time);
                 const endTime = formatEventTime(ev.end_time);
@@ -514,16 +471,16 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
                       onClick={() => openActivityModal(ev)}
                       className="border cursor-pointer flex gap-2 hover:shadow-2xs items-center min-w-0 px-2.5 py-1.5 rounded-xl transition-all w-full"
                       style={{
-                        backgroundColor: theme?.cardBg || '#ffffff',
-                        borderColor: theme?.border || '#e2e8f0',
-                        color: theme?.textPrimary || '#1e293b'
+                        backgroundColor: c.cardBg,
+                        borderColor: c.border,
+                        color: c.textPrimary
                       }}
                     >
                       <span 
                         className="font-bold px-1.5 py-0.5 rounded-md shrink-0 text-[10px] whitespace-nowrap"
                         style={{
-                          backgroundColor: theme?.badgeBg || '#f1f5f9',
-                          color: theme?.primary || '#9333ea'
+                          backgroundColor: c.badgeBg,
+                          color: c.primary
                         }}
                       >
                         {startTime}
@@ -536,14 +493,13 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
                       {endTime && (
                         <span 
                           className="font-semibold opacity-70 shrink-0 text-[10px] whitespace-nowrap"
-                          style={{ color: theme?.textSecondary || '#64748b' }}
+                          style={{ color: c.textSecondary }}
                         >
                           – {endTime}
                         </span>
                       )}
                     </div>
 
-                    {/* Standard Inline Arrow */}
                     {(!isLastVisible || hasMoreNext) && (
                       <ArrowRight className="h-3.5 opacity-40 shrink-0 w-3.5" />
                     )}
@@ -557,9 +513,9 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
                   onClick={() => setSchedulePageIndex(prev => prev + 1)}
                   className="active:scale-95 border flex font-bold gap-1 hover:opacity-90 items-center px-2.5 py-1.5 rounded-xl shadow-2xs shrink-0 text-xs transition-all"
                   style={{
-                    backgroundColor: theme?.primary || '#9333ea',
-                    color: theme?.buttonText || '#ffffff',
-                    borderColor: theme?.primary || '#9333ea'
+                    backgroundColor: c.primary,
+                    color: c.buttonText,
+                    borderColor: c.primary
                   }}
                   title="Next events"
                 >
@@ -570,21 +526,21 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
           </div>
         )}
 
-        {/* Course Cards Grid Layout */}
+        {/* Course Grid */}
         {courseGroups.length === 0 ? (
           <div 
             className="border-2 border-dashed py-16 rounded-2xl text-center transition-colors"
             style={{ 
-              backgroundColor: theme?.cardBg || '#ffffff', 
-              borderColor: theme?.border || '#e2e8f0' 
+              backgroundColor: c.cardBg, 
+              borderColor: c.border 
             }}
           >
             <Star 
               className="animate-bounce h-10 mb-2 mx-auto w-10" 
-              style={{ color: theme?.warning || '#f59e0b' }} 
+              style={{ color: c.warning }} 
             />
-            <p className="font-bold text-base" style={{ color: theme?.textPrimary || '#334155' }}>All caught up!</p>
-            <p className="mt-0.5 text-xs" style={{ color: theme?.textSecondary || '#94a3b8' }}>No school assignments scheduled for today.</p>
+            <p className="font-bold text-base" style={{ color: c.textPrimary }}>All caught up!</p>
+            <p className="mt-0.5 text-xs" style={{ color: c.textSecondary }}>No school assignments scheduled for today.</p>
           </div>
         ) : (
           <div className="gap-4 grid grid-cols-1 items-stretch lg:grid-cols-3 md:grid-cols-2">
@@ -605,37 +561,31 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
                   key={group.courseName}
                   className="border-2 flex flex-col h-full overflow-hidden rounded-2xl shadow-2xs transition-all"
                   style={{
-                    backgroundColor: theme?.cardBg || '#ffffff',
-                    borderColor: group.hasOverdue 
-                      ? (theme?.dangerBorder || '#fca5a5') 
-                      : (theme?.primaryBorder || theme?.border || '#e2e8f0')
+                    backgroundColor: c.cardBg,
+                    borderColor: group.hasOverdue ? c.dangerBorder : (c.primaryBorder || c.border)
                   }}
                 >
                   <button
                     onClick={toggleExpand}
                     className="border-b flex gap-2 hover:opacity-95 items-center justify-between p-3.5 shrink-0 transition-opacity w-full"
                     style={{
-                      backgroundColor: group.hasOverdue 
-                        ? (theme?.dangerBg || '#fff1f2')
-                        : (theme?.primaryLight || '#f3e8ff'),
-                      borderColor: group.hasOverdue
-                        ? (theme?.dangerBorder || '#fca5a5')
-                        : (theme?.primaryBorder || '#e9d5ff')
+                      backgroundColor: group.hasOverdue ? c.dangerBg : c.primaryLight,
+                      borderColor: group.hasOverdue ? c.dangerBorder : c.primaryBorder
                     }}
                   >
                     <div className="flex gap-2.5 items-center min-w-0">
                       <div 
                         className="p-1.5 rounded-lg shadow-2xs shrink-0"
                         style={{
-                          backgroundColor: theme?.cardBg || '#ffffff',
-                          color: group.hasOverdue ? (theme?.dangerText || '#e11d48') : (theme?.primary || '#9333ea')
+                          backgroundColor: c.cardBg,
+                          color: group.hasOverdue ? c.dangerText : c.primary
                         }}
                       >
                         <BookOpen className="h-4 w-4" />
                       </div>
                       <span 
                         className="font-extrabold text-left text-xs truncate"
-                        style={{ color: theme?.textPrimary || '#1e293b' }}
+                        style={{ color: c.textPrimary }}
                       >
                         {group.courseName}
                       </span>
@@ -646,8 +596,8 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
                         <span 
                           className="flex font-bold gap-1 items-center px-2 py-0.5 rounded-full shadow-2xs text-[10px]"
                           style={{
-                            backgroundColor: theme?.successBg || '#d1fae5',
-                            color: theme?.successText || '#065f46'
+                            backgroundColor: c.successBg,
+                            color: c.successText
                           }}
                         >
                           <CheckCircle2 className="h-3 w-3" /> Done
@@ -656,18 +606,18 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
                         <span 
                           className="border font-bold px-2 py-0.5 rounded-full text-[10px]"
                           style={{
-                            backgroundColor: theme?.cardBg || '#ffffff',
-                            borderColor: theme?.border || '#cbd5e1',
-                            color: theme?.textSecondary || '#475569'
+                            backgroundColor: c.cardBg,
+                            borderColor: c.border,
+                            color: c.textSecondary
                           }}
                         >
                           {group.completedTasks}/{group.totalTasks}
                         </span>
                       )}
                       {isExpanded ? (
-                        <ChevronUp className="h-4 w-4" style={{ color: theme?.textSecondary || '#64748b' }} />
+                        <ChevronUp className="h-4 w-4" style={{ color: c.textSecondary }} />
                       ) : (
-                        <ChevronDown className="h-4 w-4" style={{ color: theme?.textSecondary || '#64748b' }} />
+                        <ChevronDown className="h-4 w-4" style={{ color: c.textSecondary }} />
                       )}
                     </div>
                   </button>
@@ -675,30 +625,28 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
                   {isExpanded && (
                     <div 
                       className="flex flex-1 flex-col justify-start p-3 space-y-2 transition-colors"
-                      style={{ 
-                        backgroundColor: theme?.taskContainerBg || '#ffffff'
-                      }}
+                      style={{ backgroundColor: c.taskContainerBg || c.cardBg }}
                     >
                       {group.tasks.map((activity) => {
                         const isWorking = Boolean(activity.start_time);
                         const isOverdue = activity.isOverdue && !activity.is_completed;
                         const isCompleted = activity.is_completed;
 
-                        let cardBg = theme?.cardBg || '#ffffff';
-                        let cardBorder = theme?.border || '#e2e8f0';
-                        let textColor = theme?.textPrimary || '#1e293b';
+                        let cardBg = c.cardBg;
+                        let cardBorder = c.border;
+                        let textColor = c.textPrimary;
 
                         if (isCompleted) {
-                          cardBg = theme?.completedBg || '#f8fafc';
-                          cardBorder = theme?.completedBorder || '#e2e8f0';
-                          textColor = theme?.completedText || '#94a3b8';
+                          cardBg = c.completedBg;
+                          cardBorder = c.completedBorder;
+                          textColor = c.completedText;
                         } else if (isWorking) {
-                          cardBg = theme?.activeTaskBg || '#fffbeb';
-                          cardBorder = theme?.activeTaskBorder || '#fcd34d';
+                          cardBg = c.activeTaskBg;
+                          cardBorder = c.activeTaskBorder;
                         } else if (isOverdue) {
-                          cardBg = theme?.dangerBg || '#fff1f2';
-                          cardBorder = theme?.dangerBorder || '#fca5a5';
-                          textColor = theme?.dangerText || '#e11d48';
+                          cardBg = c.dangerBg;
+                          cardBorder = c.dangerBorder;
+                          textColor = c.dangerText;
                         }
 
                         return (
@@ -711,7 +659,7 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
                             style={{
                               backgroundColor: cardBg,
                               borderColor: cardBorder,
-                              boxShadow: isWorking ? `0 0 0 2px ${theme?.primary || '#9333ea'}33` : undefined
+                              boxShadow: isWorking ? `0 0 0 2px ${c.primary}33` : undefined
                             }}
                           >
                             <div className="flex flex-1 gap-2.5 items-center min-w-0 pr-2">
@@ -733,8 +681,8 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
                                 }}
                                 className="border-2 flex h-5 items-center justify-center rounded-full shrink-0 transition-all w-5"
                                 style={{
-                                  backgroundColor: isCompleted ? (theme?.success || '#10b981') : 'transparent',
-                                  borderColor: isCompleted ? (theme?.success || '#10b981') : (theme?.border || '#cbd5e1')
+                                  backgroundColor: isCompleted ? c.success : 'transparent',
+                                  borderColor: isCompleted ? c.success : c.border
                                 }}
                               >
                                 {isCompleted && <Check className="h-3 stroke-[3] text-white w-3" />}
@@ -751,7 +699,7 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
                                 {activity.estimated_minutes && (
                                   <span 
                                     className="font-semibold opacity-75 text-[10px]"
-                                    style={{ color: theme?.textSecondary || '#64748b' }}
+                                    style={{ color: c.textSecondary }}
                                   >
                                     ⏱️ {activity.estimated_minutes}m
                                   </span>
@@ -766,8 +714,8 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
                                     onClick={(e) => handleStartWork(activity, e)}
                                     className="active:scale-95 flex font-bold gap-1 hover:opacity-90 items-center px-2.5 py-1 rounded-lg shadow-2xs text-[11px] transition-all"
                                     style={{
-                                      backgroundColor: theme?.primary || '#9333ea',
-                                      color: theme?.buttonText || '#ffffff'
+                                      backgroundColor: c.primary,
+                                      color: c.buttonText
                                     }}
                                   >
                                     <Play className="fill-current h-2.5 w-2.5" /> Start
@@ -777,7 +725,7 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
                                     onClick={(e) => handlePauseWork(activity, e)}
                                     className="active:scale-95 flex font-bold gap-1 hover:opacity-90 items-center px-2.5 py-1 rounded-lg shadow-2xs text-[11px] transition-all"
                                     style={{
-                                      backgroundColor: theme?.warning || '#f59e0b',
+                                      backgroundColor: c.warning,
                                       color: '#ffffff'
                                     }}
                                   >
@@ -798,7 +746,7 @@ export default function AgendaView({ kidId, selectedDate }: AgendaViewProps) {
         )}
       </div>
 
-      {/* Modal Dialogs */}
+      {/* Modals */}
       {isModalOpen && selectedActivity && (
         <ActivityDetailModal
           activity={selectedActivity}

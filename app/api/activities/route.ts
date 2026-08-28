@@ -71,6 +71,7 @@ export async function PATCH(request: NextRequest) {
       completed_at: updates.completed_at,
       is_action_override: updates.is_action_override,
       daily_checklist: updates.daily_checklist, // 👈 Explicitly saved
+      position: updates.position,
       updated_at: new Date().toISOString(),
     };
 
@@ -120,6 +121,7 @@ export async function POST(request: NextRequest) {
       isActionable,
       parentActivityId,
       resourceUrl,
+      position,
     } = body;
 
     if (!kidId || !title || !activityType) {
@@ -154,6 +156,7 @@ export async function POST(request: NextRequest) {
         is_deleted: false,
         is_hidden: false,
         resource_url: resourceUrl,
+        position: position || null,
       })
       .select()
       .single();
