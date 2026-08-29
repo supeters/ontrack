@@ -18,7 +18,9 @@ import {
   ArrowRight,
   ChevronsRight,
   ChevronsLeft,
-  AlertCircle
+  AlertCircle,
+  LayoutGrid,
+  CalendarDays
 } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import ActivityDetailModal from './ActivityDetailModal';
@@ -696,14 +698,14 @@ export default function AgendaView({ kidId, selectedDate, selectedSchoolYear }: 
                         const isExpanded = expandedActivities.has(activity.id);
 
                         return (
-                          <div key={activity.id} className="space-y-1">
+                          <div key={activity.id} className={`${group.tasks.indexOf(activity) !== group.tasks.length - 1 ? `border-b ${c.divider}` : ''}`}>
                             <div
                               onClick={() => openActivityModal(activity)}
-                              className={`p-2.5 rounded-xl flex items-center justify-between cursor-pointer border transition-all ${
+                              className={`p-2.5 flex items-center justify-between cursor-pointer transition-all ${
                                 isCompleted
-                                  ? 'opacity-60 border-transparent'
+                                  ? 'opacity-60'
                                   : `${c.activityHover}`
-                              } ${isWorking ? 'ring-2 ring-amber-500' : ''}`}
+                              } ${isWorking ? 'ring-2 ring-amber-500 rounded-lg' : ''}`}
                             >
                               <div className="flex flex-1 gap-2.5 items-center min-w-0 pr-2">
                                 <button

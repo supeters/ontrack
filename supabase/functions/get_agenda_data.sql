@@ -7,7 +7,6 @@ RETURNS TABLE (
   today_activities JSONB,
   overdue_activities JSONB,
   scheduled_classes JSONB,
-  next_module_activities JSONB,
   completed_activities JSONB
 )
 LANGUAGE plpgsql
@@ -17,7 +16,6 @@ DECLARE
   v_today_activities JSONB;
   v_overdue_activities JSONB;
   v_scheduled_classes JSONB;
-  v_next_module_activities JSONB;
   v_completed_activities JSONB;
 BEGIN
   -- Cast p_date safely
@@ -192,3 +190,5 @@ BEGIN
     v_completed_activities;
 END;
 $$;
+
+select * from activities  where course_id = 66 and activity_type = 'task' 
