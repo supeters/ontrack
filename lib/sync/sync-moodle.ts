@@ -6,26 +6,6 @@ export interface MoodleSyncParams {
 }
 
 /**
- * Normalizes multi-line task strings
- */
-function sanitizeTaskText(rawTasks: string): string {
-  if (!rawTasks) return '';
-
-  return rawTasks
-    .replace(/\r\n/g, '\n')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .join('\n');
-}
-
-/**
  * Strips inline style attributes and font tags from HTML
  */
 function sanitizeDescriptionHtml(rawHtml: string | null): string | null {
@@ -42,10 +22,105 @@ function sanitizeDescriptionHtml(rawHtml: string | null): string | null {
 }
 
 /**
- * REMOVED: Checklist parsing from sync
- * Checklist is now user-managed only via the modal UI
- * Sync will never create or update checklist data
+ * Parse "Day 1:", "Day 2:", etc. patterns from section content
+ * Returns array of tasks with their text
  */
+function parseDayTasks(htmlContent: string | null): Array<{ text: string; dayNumber: number }> {
+  if (!htmlContent) return [];
+
+  // Strip HTML tags first
+  const textContent = htmlContent
+    .replace(/<br\s*[\/]?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .trim();
+
+  const tasks: Array<{ text: string; dayNumber: number }> = [];
+  const lines = textContent.split('\n').map(line => line.trim()).filter(Boolean);
+
+  let currentDay: number | null = null;
+  let currentText: string[] = [];
+
+  for (const line of lines) {
+    // Match "Day N:" or "Day N—" at the start of a line (case insensitive)
+    // Handles : (colon), — (em dash), – (en dash), - (hyphen)
+    const dayMatch = line.match(/^Day\s+(\d+)\s*[:\-—–]/i);
+
+    if (dayMatch) {
+      // Save previous day's content if exists
+      if (currentDay !== null && currentText.length > 0) {
+        tasks.push({
+          dayNumber: currentDay,
+          text: currentText.join(' ').trim()
+        });
+      }
+
+      // Start new day
+      currentDay = parseInt(dayMatch[1], 10);
+      // Get text after "Day N:"
+      const afterColon = line.substring(dayMatch[0].length).trim();
+      currentText = afterColon ? [afterColon] : [];
+    } else if (currentDay !== null) {
+      // Continue accumulating text for current day
+      // Stop if we hit another section marker or empty pattern
+      if (line && !line.match(/^(Before Class|Attend Class|Week \d+)/i)) {
+        currentText.push(line);
+      }
+    }
+  }
+
+  // Save last day's content
+  if (currentDay !== null && currentText.length > 0) {
+    tasks.push({
+      dayNumber: currentDay,
+      text: currentText.join(' ').trim()
+    });
+  }
+
+  return tasks;
+}
+
+/**
+ * Parse simple list-based tasks from section content
+ * Each non-heading line becomes a task
+ * Skips Week/Chapter headings
+ */
+function parseListTasks(htmlContent: string | null): Array<{ text: string; lineNumber: number }> {
+  if (!htmlContent) return [];
+
+  // Strip HTML tags first
+  const textContent = htmlContent
+    .replace(/<br\s*[\/]?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .trim();
+
+  const tasks: Array<{ text: string; lineNumber: number }> = [];
+  const lines = textContent.split('\n').map(line => line.trim()).filter(Boolean);
+
+  let lineNumber = 0;
+
+  for (const line of lines) {
+    // Skip common heading patterns
+    if (line.match(/^Week\s+\d+/i)) continue;
+    if (line.match(/^Unit\s+\d+/i)) continue;
+    if (line.match(/^Day\s+\d+\s*[:\-—–]/i)) continue; // Skip if Day N: pattern exists (will be handled by parseDayTasks)
+
+    // Skip very short lines (likely fragments)
+    if (line.length < 5) continue;
+
+    // This is a task line
+    lineNumber++;
+    tasks.push({
+      text: line,
+      lineNumber: lineNumber
+    });
+  }
+
+  return tasks;
+}
 
 /**
  * Map Moodle module type to activity type
@@ -95,6 +170,16 @@ async function callMoodleApi(lmsAccount: any, wsFunction: string, params: Record
 
 /**
  * Sync Moodle course sections and modules
+ *
+ * Parsed Task Behavior:
+ * - Parses section summaries to extract tasks automatically:
+ *   1. "Day 1:", "Day 2:", etc. patterns → day_task
+ *   2. Simple line-by-line lists → list_task (skips Week/Chapter headings)
+ * - Creates tasks on FIRST sync only (insert-only, never updates)
+ * - Once created, parsed tasks become fully user-controlled
+ * - Users can freely modify title, plan_date, completion status, etc.
+ * - If content is removed from Moodle, the task is soft-deleted
+ * - If new content is added to Moodle, new tasks are created
  */
 export async function syncMoodleCourse(params: MoodleSyncParams): Promise<void> {
   const { courseId, onProgress } = params;
@@ -146,6 +231,7 @@ export async function syncMoodleCourse(params: MoodleSyncParams): Promise<void> 
 
   const sectionSyncRecords = [];
   const itemSyncRecords = [];
+  const taskSyncRecords = []; // For Day N tasks parsed from section summaries
   // Track all lms_id values we sync (for deletion detection)
   const syncedLmsIds = new Set<string>();
 
@@ -174,6 +260,64 @@ export async function syncMoodleCourse(params: MoodleSyncParams): Promise<void> 
       item_needs_processing: !isSection0
     });
     syncedLmsIds.add(sectionLmsId);
+
+    // Parse tasks from section summary (if not section 0)
+    if (!isSection0 && section.summary) {
+      // Try Day N: pattern first
+      const dayTasks = parseDayTasks(section.summary);
+
+      if (dayTasks.length > 0) {
+        // Use Day N: tasks
+        for (const dayTask of dayTasks) {
+          const taskLmsId = `${sectionLmsId}_day_${dayTask.dayNumber}`;
+
+          taskSyncRecords.push({
+            lms_id: taskLmsId,
+            course_id: course.id,
+            lms_source: 'moodle',
+            title: `Day ${dayTask.dayNumber}: ${dayTask.text}`,
+            description: null,
+            activity_type: 'task',
+            kid_id: course.kid_id,
+            _parent_section_lms_id: sectionLmsId,
+            lms_type: 'day_task',
+            position: dayTask.dayNumber,
+            is_hidden: section.visible === 0,
+            is_action_sync: true,
+            lms_synced_at: new Date().toISOString(),
+            item_needs_processing: false,
+            _is_day_task: true
+          });
+          syncedLmsIds.add(taskLmsId);
+        }
+      } else {
+        // No Day N: pattern found, try list-based tasks
+        const listTasks = parseListTasks(section.summary);
+
+        for (const listTask of listTasks) {
+          const taskLmsId = `${sectionLmsId}_line_${listTask.lineNumber}`;
+
+          taskSyncRecords.push({
+            lms_id: taskLmsId,
+            course_id: course.id,
+            lms_source: 'moodle',
+            title: listTask.text,
+            description: null,
+            activity_type: 'task',
+            kid_id: course.kid_id,
+            _parent_section_lms_id: sectionLmsId,
+            lms_type: 'list_task',
+            position: listTask.lineNumber,
+            is_hidden: section.visible === 0,
+            is_action_sync: true,
+            lms_synced_at: new Date().toISOString(),
+            item_needs_processing: false,
+            _is_list_task: true
+          });
+          syncedLmsIds.add(taskLmsId);
+        }
+      }
+    }
 
     // Module Item Records
     for (const module of section.modules || []) {
@@ -211,7 +355,7 @@ export async function syncMoodleCourse(params: MoodleSyncParams): Promise<void> 
     }
   }
 
-  log(`📦 Prepared ${sectionSyncRecords.length} sections and ${itemSyncRecords.length} items`);
+  log(`📦 Prepared ${sectionSyncRecords.length} sections, ${itemSyncRecords.length} items, and ${taskSyncRecords.length} day tasks`);
 
   // STEP 1: Bulk Upsert Sections
   log(`💾 Step 1: Bulk upserting ${sectionSyncRecords.length} sections...`);
@@ -258,9 +402,56 @@ export async function syncMoodleCourse(params: MoodleSyncParams): Promise<void> 
   const itemsSkipped = itemResults.filter((r: any) => r.was_skipped).length;
   log(`   📊 Items -> Inserted: ${itemsInserted}, Updated: ${itemsUpdated}, Skipped: ${itemsSkipped}`);
 
+  // STEP 3: Insert NEW Parsed Tasks Only (Never Update)
+  // Parsed tasks (day_task, list_task) are "seed data" - once created, they become fully user-controlled
+  if (taskSyncRecords.length > 0) {
+    log(`💾 Step 3: Checking for new parsed tasks...`);
 
-  // Step 3: Handle deletions - soft delete items that weren't in the sync
-  log(`🗑️  Step 3: Processing deletions...`);
+    // Get existing parsed task lms_ids for this course (both day_task and list_task)
+    const { data: existingParsedTasks } = await supabase
+      .from('activities')
+      .select('lms_id')
+      .eq('course_id', courseId)
+      .eq('lms_source', 'moodle')
+      .in('lms_type', ['day_task', 'list_task'])
+      .eq('is_deleted', false);
+
+    const existingLmsIds = new Set((existingParsedTasks || []).map(t => t.lms_id));
+
+    // Filter to only NEW tasks that don't exist yet
+    const newTasksToInsert = taskSyncRecords.filter((task: any) => !existingLmsIds.has(task.lms_id));
+
+    if (newTasksToInsert.length > 0) {
+      log(`   Found ${newTasksToInsert.length} new parsed tasks to create...`);
+
+      // Resolve parent IDs for new tasks
+      newTasksToInsert.forEach((task: any) => {
+        const parentSectionLmsId = task._parent_section_lms_id;
+        const dbParentId = sectionLmsToDbId[parentSectionLmsId] || null;
+
+        task.parent_activity_id = dbParentId;
+        task.module_id = dbParentId;
+
+        delete task._parent_section_lms_id;
+        delete task._is_day_task;
+        delete task._is_list_task;
+      });
+
+      const { data: taskResults, error: taskError } = await supabase.rpc('safe_bulk_sync_upsert', {
+        sync_records: newTasksToInsert
+      });
+
+      if (taskError) throw taskError;
+
+      const tasksInserted = taskResults.filter((r: any) => r.was_inserted).length;
+      log(`   📊 Parsed Tasks -> Created: ${tasksInserted} new tasks`);
+    } else {
+      log(`   📊 Parsed Tasks -> No new tasks to create (all existing tasks preserved)`);
+    }
+  }
+
+  // Step 4: Handle deletions - soft delete items that weren't in the sync
+  log(`🗑️  Step 4: Processing deletions...`);
 
   const syncedLmsIdsArray = Array.from(syncedLmsIds);
   const { data: deletedItems, error: deleteError } = await supabase

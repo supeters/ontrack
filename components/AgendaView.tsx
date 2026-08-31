@@ -133,8 +133,12 @@ export default function AgendaView({ kidId, selectedDate, selectedSchoolYear }: 
     if (!kidId) return;
     setLoading(true);
     try {
+      // Get today's date in user's timezone (YYYY-MM-DD format)
+      const today = new Date();
+      const currentDateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
       const yearParam = selectedSchoolYear ? `&academicYear=${encodeURIComponent(selectedSchoolYear)}` : '';
-      const agendaRes = await fetch(`/api/agenda?kidId=${kidId}&date=${selectedDateStr}${yearParam}`);
+      const agendaRes = await fetch(`/api/agenda?kidId=${kidId}&date=${selectedDateStr}&currentDate=${currentDateStr}${yearParam}`);
       const data = await agendaRes.json();
 
       setOverdueActivities(data.overdue_activities || []);

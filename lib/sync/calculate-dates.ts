@@ -361,17 +361,19 @@ async function calculateWeekPatternBased(course: any, supabase: any, log: (msg: 
     return match && parseInt(match[1]) === 1;
   });
 
-  if (!week1Module) {
-    throw new Error('No "Week 1" module found');
-  }
-
-  // Calculate week 1 start date
+  // Calculate week 1 start date (even if Week 1 module doesn't exist)
+  // Use calendar start date as the Sunday of week 1
   const [year, month, day] = calendar.start_date.split('-').map(Number);
   const date = new Date(year, month - 1, day);
   const dayOfWeek = date.getDay();
   const daysBack = dayOfWeek === 0 ? 0 : dayOfWeek;
   const sundayDay = day - daysBack;
   const week1StartDate = addDaysToDate(year, month, sundayDay, 0);
+
+  // Log warning if no Week 1 module found
+  if (!week1Module) {
+    log('   ⚠️  No "Week 1" module found - using calendar start date as Week 1 baseline');
+  }
 
   const updates = [];
   let modulesUpdatedCount = 0;
@@ -408,6 +410,49 @@ async function calculateWeekPatternBased(course: any, supabase: any, log: (msg: 
         const planDate = formatDateString(fridayDate);
         updates.push({ id: child.id, plan_date: planDate });
         assignmentsUpdatedCount++;
+      }
+    }
+  }
+
+  // Process assignments with "Participation Assignment Week N" pattern
+  // These can be in any module (like "Participation Assignments")
+  // This is a specific pattern - only matches "Participation Assignment Week N"
+  const participationWeekPattern = allActivities.filter((a: any) =>
+    a.activity_type === 'assignment' &&
+    a.is_action === true &&
+    /^Participation (Assessment|Assignment)\s+Week\s+\d+/i.test(a.title)
+  );
+
+  if (participationWeekPattern.length > 0) {
+    log(`   📋 Found ${participationWeekPattern.length} Participation Assessment/Assignment items`);
+    log(`   📅 Week 1 baseline: ${formatDateString(week1StartDate)} (Sunday)`);
+  }
+
+  for (const assignment of participationWeekPattern) {
+    const match = assignment.title.match(/week\s+(\d+)/i);
+    if (!match) continue;
+
+    const weekNumber = parseInt(match[1]);
+    const weeksFromWeek1 = weekNumber - 1;
+
+    const weekStartDate = addDaysToDate(
+      week1StartDate.year,
+      week1StartDate.month,
+      week1StartDate.day,
+      weeksFromWeek1 * 7
+    );
+
+    if (!assignment.is_pinned && assignment.item_needs_processing) {
+      const fridayDate = addDaysToDate(weekStartDate.year, weekStartDate.month, weekStartDate.day, 5);
+      const planDate = formatDateString(fridayDate);
+      log(`      Week ${weekNumber}: "${assignment.title}" → ${planDate}`);
+      updates.push({ id: assignment.id, plan_date: planDate });
+      assignmentsUpdatedCount++;
+    } else {
+      if (assignment.is_pinned) {
+        log(`      Week ${weekNumber}: "${assignment.title}" SKIPPED (pinned)`);
+      } else if (!assignment.item_needs_processing) {
+        log(`      Week ${weekNumber}: "${assignment.title}" SKIPPED (doesn't need processing)`);
       }
     }
   }
