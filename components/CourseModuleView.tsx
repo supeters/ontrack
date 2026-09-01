@@ -50,6 +50,7 @@ export default function CourseModuleView({ course, kidId, selectedDate }: Course
   const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
   const [showMoreAssignments, setShowMoreAssignments] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [expandedUpcomingGroups, setExpandedUpcomingGroups] = useState<Set<number>>(new Set());
 
 const getCurrentWeekIndex = (weekModulesList: any[], date: Date) => {
   const targetDate = formatDateLocal(date);
@@ -131,9 +132,18 @@ const getCurrentWeekIndex = (weekModulesList: any[], date: Date) => {
       // Extract all activities from modules for sidebar
       const activities: any[] = [];
       modulesList.forEach((module: any) => {
-        module.direct_activities?.forEach((act: any) => activities.push(act));
+        // Include the module itself if it's actionable
+        if (module.is_action) {
+          activities.push(module);
+        }
+        // Include direct activities and workgroup activities with parent info
+        module.direct_activities?.forEach((act: any) => {
+          activities.push({ ...act, _parent_plan_date: module.plan_date });
+        });
         module.workgroups?.forEach((wg: any) => {
-          wg.activities?.forEach((act: any) => activities.push(act));
+          wg.activities?.forEach((act: any) => {
+            activities.push({ ...act, _parent_plan_date: wg.plan_date || module.plan_date });
+          });
         });
       });
       setAllActivities(activities);
@@ -326,10 +336,40 @@ const getCurrentWeekIndex = (weekModulesList: any[], date: Date) => {
   }
 
   // Get upcoming incomplete assignments sorted by plan_date
-  const upcomingAssignments = allActivities
-    .filter((act: any) => act.is_action && !act.is_completed && act.plan_date)
-    .sort((a: any, b: any) => a.plan_date.localeCompare(b.plan_date))
-    .slice(0, showMoreAssignments ? undefined : 5);
+  // Include items if they have a plan_date OR their parent has a plan_date
+  const upcomingActivities = allActivities
+    .filter((act: any) => act.is_action && !act.is_completed && (act.plan_date || act._parent_plan_date))
+    .sort((a: any, b: any) => {
+      const dateA = a.plan_date || a._parent_plan_date;
+      const dateB = b.plan_date || b._parent_plan_date;
+      return dateA.localeCompare(dateB);
+    });
+
+  // Group by parent activity
+  const groupedActivities: Array<{ parent?: any; children: any[] }> = [];
+  const processedIds = new Set<number>();
+
+  upcomingActivities.forEach((act: any) => {
+    if (processedIds.has(act.id)) return;
+
+    // If this activity has children with same plan_date, group them
+    const children = upcomingActivities.filter((child: any) =>
+      child.parent_activity_id === act.id && !processedIds.has(child.id)
+    );
+
+    if (children.length > 0) {
+      // This is a parent with children
+      groupedActivities.push({ parent: act, children });
+      processedIds.add(act.id);
+      children.forEach((child: any) => processedIds.add(child.id));
+    } else if (!act.parent_activity_id || !upcomingActivities.some((p: any) => p.id === act.parent_activity_id)) {
+      // This is a standalone activity (no children, or parent not in upcoming list)
+      groupedActivities.push({ children: [act] });
+      processedIds.add(act.id);
+    }
+  });
+
+  const upcomingAssignments = showMoreAssignments ? groupedActivities : groupedActivities.slice(0, 5);
 
   // Current module to display
   const currentModule = viewMode === 'week' ? weekModules[currentWeekIndex] : null;
@@ -582,50 +622,158 @@ const getCurrentWeekIndex = (weekModulesList: any[], date: Date) => {
           </div>
         ) : (
           <div className="space-y-2">
-            {upcomingAssignments.map((activity: any) => (
-              <div
-                key={activity.id}
-                className={`p-3 border ${c.moduleBorder} rounded-lg ${c.activityHover} transition-colors cursor-pointer`}
-                onClick={() => setSelectedActivity(activity)}
-              >
-                <div className="flex gap-2 items-start">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleCompletion(activity);
-                    }}
-                    className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${
-                      activity.is_completed
-                        ? c.checkboxChecked
-                        : c.checkboxBorder + ' hover:border-stone-400'
-                    }`}
-                  >
-                    {activity.is_completed && (
-                      <svg className="h-3 text-white w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                      </svg>
-                    )}
-                  </button>
-                  <div className="flex-1 min-w-0">
-                    <div className={`text-sm font-medium ${c.activityText} mb-1 line-clamp-2`}>
-                      {activity.title}
+            {upcomingAssignments.map((group: { parent?: any; children: any[] }, groupIdx: number) => {
+              const { parent, children } = group;
+
+              // If there's a parent, show collapsible group
+              if (parent) {
+                const isExpanded = expandedUpcomingGroups.has(parent.id);
+
+                return (
+                  <div key={`group-${parent.id}`} className={`border ${c.moduleBorder} rounded-lg overflow-hidden`}>
+                    {/* Parent header */}
+                    <div className={`flex items-start gap-2 p-3 ${c.cardBg}`}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleCompletion(parent);
+                        }}
+                        className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                          parent.is_completed
+                            ? c.checkboxChecked
+                            : c.checkboxBorder + ' hover:border-stone-400'
+                        }`}
+                      >
+                        {parent.is_completed && (
+                          <svg className="h-3 text-white w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </button>
+                      <div
+                        className="flex-1 min-w-0 cursor-pointer"
+                        onClick={() => setSelectedActivity(parent)}
+                      >
+                        <div className={`text-sm font-medium ${c.activityText} mb-1 line-clamp-2`}>
+                          {parent.title}
+                        </div>
+                        <div className={`text-xs ${c.mutedText} flex items-center gap-2`}>
+                          {parent.plan_date && (
+                            <span className="bg-blue-50 font-medium px-2 py-0.5 rounded text-blue-700">
+                              {new Date(parent.plan_date + 'T00:00:00').toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                              })}
+                            </span>
+                          )}
+                          <span className={c.mutedText}>({children.length} task{children.length !== 1 ? 's' : ''})</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const newSet = new Set(expandedUpcomingGroups);
+                          if (isExpanded) {
+                            newSet.delete(parent.id);
+                          } else {
+                            newSet.add(parent.id);
+                          }
+                          setExpandedUpcomingGroups(newSet);
+                        }}
+                        className={`mt-1 p-1 ${c.mutedText} hover:${c.moduleText} transition-colors`}
+                      >
+                        <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                      </button>
                     </div>
-                    <div className={`text-xs ${c.mutedText}`}>
-                      {activity.plan_date && (
-                        <span className="bg-blue-50 font-medium px-2 py-0.5 rounded text-blue-700">
-                          {new Date(activity.plan_date + 'T00:00:00').toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                          })}
-                        </span>
-                      )}
+
+                    {/* Children */}
+                    {isExpanded && (
+                      <div className={`border-t ${c.divider}`}>
+                        {children.map((child: any) => (
+                          <div
+                            key={child.id}
+                            className={`p-3 pl-10 border-t first:border-t-0 ${c.divider} ${c.activityHover} transition-colors cursor-pointer`}
+                            onClick={() => setSelectedActivity(child)}
+                          >
+                            <div className="flex gap-2 items-start">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleCompletion(child);
+                                }}
+                                className={`mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                                  child.is_completed
+                                    ? c.checkboxChecked
+                                    : c.checkboxBorder + ' hover:border-stone-400'
+                                }`}
+                              >
+                                {child.is_completed && (
+                                  <svg className="h-3 text-white w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                )}
+                              </button>
+                              <div className="flex-1 min-w-0">
+                                <div className={`text-xs font-medium ${c.activityText} line-clamp-2`}>
+                                  {child.title}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              } else {
+                // Standalone activity (no parent grouping)
+                const activity = children[0];
+                return (
+                  <div
+                    key={activity.id}
+                    className={`p-3 border ${c.moduleBorder} rounded-lg ${c.activityHover} transition-colors cursor-pointer`}
+                    onClick={() => setSelectedActivity(activity)}
+                  >
+                    <div className="flex gap-2 items-start">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleCompletion(activity);
+                        }}
+                        className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                          activity.is_completed
+                            ? c.checkboxChecked
+                            : c.checkboxBorder + ' hover:border-stone-400'
+                        }`}
+                      >
+                        {activity.is_completed && (
+                          <svg className="h-3 text-white w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <div className={`text-sm font-medium ${c.activityText} mb-1 line-clamp-2`}>
+                          {activity.title}
+                        </div>
+                        <div className={`text-xs ${c.mutedText}`}>
+                          {(activity.plan_date || activity._parent_plan_date) && (
+                            <span className="bg-blue-50 font-medium px-2 py-0.5 rounded text-blue-700">
+                              {new Date((activity.plan_date || activity._parent_plan_date) + 'T00:00:00').toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                              })}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            ))}
+                );
+              }
+            })}
 
-            {allActivities.filter((act: any) => act.is_action && !act.is_completed && act.plan_date).length > 5 && (
+            {groupedActivities.length > 5 && (
               <button
                 onClick={() => setShowMoreAssignments(!showMoreAssignments)}
                 className={`w-full py-2 text-sm ${c.mutedText} hover:${c.moduleText} transition-colors`}

@@ -21,9 +21,20 @@ DECLARE
   v_calendar_events JSONB;
 BEGIN
   -- Get all activities in the date range (not deleted, not hidden)
-  SELECT jsonb_agg(to_jsonb(a.*) ORDER BY a.plan_date, a.start_time)
+  -- Include actual_time_worked which is the sum of work_chunks.minutes_worked
+  SELECT jsonb_agg(
+    to_jsonb(a.*) || jsonb_build_object(
+      'actual_time_worked', COALESCE(work_time.total_minutes, 0)
+    ) ORDER BY a.plan_date, a.start_time
+  )
   INTO v_activities
   FROM public.activities a
+  LEFT JOIN LATERAL (
+    SELECT SUM(wc.minutes_worked) AS total_minutes
+    FROM public.activity_work_chunks wc
+    WHERE wc.activity_id = a.id
+      AND wc.kid_id = p_kid_id
+  ) work_time ON true
   WHERE a.kid_id = p_kid_id
     AND a.plan_date BETWEEN p_start_date::DATE AND p_end_date::DATE
     AND a.is_deleted = false

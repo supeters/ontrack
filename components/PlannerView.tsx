@@ -95,7 +95,13 @@ export default function PlannerView({ kidId, selectedDate, setSelectedDate }: Pl
     weekDates.forEach(date => {
       const dateStr = formatDateLocal(date);
       const dayActivities = activities.filter(a => a.plan_date?.split('T')[0] === dateStr);
-      totals[dateStr] = dayActivities.reduce((sum, a) => sum + (a.estimated_minutes || 0), 0);
+      totals[dateStr] = dayActivities.reduce((sum, a) => {
+        // For completed tasks, use actual time worked; otherwise use estimated time
+        const timeToUse = a.is_completed && a.actual_time_worked > 0
+          ? a.actual_time_worked
+          : (a.estimated_minutes || 0);
+        return sum + timeToUse;
+      }, 0);
     });
     return totals;
   }, [activities, weekDates]);
@@ -105,7 +111,13 @@ export default function PlannerView({ kidId, selectedDate, setSelectedDate }: Pl
     const totals: Record<number, number> = {};
     courses.forEach(course => {
       const courseActivities = activities.filter(a => a.course_id === course.id);
-      totals[course.id] = courseActivities.reduce((sum, a) => sum + (a.estimated_minutes || 0), 0);
+      totals[course.id] = courseActivities.reduce((sum, a) => {
+        // For completed tasks, use actual time worked; otherwise use estimated time
+        const timeToUse = a.is_completed && a.actual_time_worked > 0
+          ? a.actual_time_worked
+          : (a.estimated_minutes || 0);
+        return sum + timeToUse;
+      }, 0);
     });
     return totals;
   }, [activities, courses]);
@@ -420,10 +432,14 @@ export default function PlannerView({ kidId, selectedDate, setSelectedDate }: Pl
                                     <div className={`font-medium leading-tight line-clamp-2 ${activity.is_completed ? 'line-through text-gray-500' : c.activityText}`}>
                                       {activity.title}
                                     </div>
-                                    {activity.estimated_minutes > 0 && (
+                                    {((activity.is_completed && activity.actual_time_worked > 0) || activity.estimated_minutes > 0) && (
                                       <div className={`text-[10px] ${c.mutedText} mt-0.5 flex items-center gap-1`}>
                                         <Clock className="h-2.5 w-2.5" />
-                                        <span>{formatTime(activity.estimated_minutes)}</span>
+                                        <span>
+                                          {activity.is_completed && activity.actual_time_worked > 0
+                                            ? formatTime(activity.actual_time_worked)
+                                            : formatTime(activity.estimated_minutes)}
+                                        </span>
                                         {activity.is_completed && (
                                           <CheckCircle2 className="flex-shrink-0 h-3 text-green-500 w-3" />
                                         )}

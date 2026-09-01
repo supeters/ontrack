@@ -642,7 +642,7 @@ export default function AgendaView({ kidId, selectedDate, selectedSchoolYear }: 
         ) : (
           <div className="gap-4 grid grid-cols-1 items-stretch lg:grid-cols-3 md:grid-cols-2">
             {courseGroups.map((group) => {
-              const isExpanded = expandedCourses.has(group.courseName) || !group.allComplete;
+              const isExpanded = expandedCourses.has(group.courseName) || true;
               const toggleExpand = () => {
                 const newSet = new Set(expandedCourses);
                 if (newSet.has(group.courseName)) {

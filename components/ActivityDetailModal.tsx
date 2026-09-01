@@ -541,6 +541,32 @@ export default function ActivityDetailModal({
     }
   };
 
+  const handleStartWork = async () => {
+    try {
+      const now = new Date();
+
+      await fetch('/api/work-chunks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          activity_id: activity.id,
+          kid_id: activity.kid_id,
+          start_time: now.toISOString(),
+          end_time: null,
+          is_active: true,
+          is_manual: false,
+        }),
+      });
+
+      // Reload work chunks
+      const response = await fetch(`/api/work-chunks?activity_id=${activity.id}`);
+      const data = await response.json();
+      setWorkChunks(data.chunks || []);
+    } catch (error) {
+      console.error('Error starting work:', error);
+    }
+  };
+
   const handleAddWorkSession = async () => {
     if (!newSessionMinutes || newSessionMinutes <= 0) {
       alert('Please enter valid minutes');
@@ -857,6 +883,18 @@ export default function ActivityDetailModal({
                       <span className="hidden sm:inline">Add Time</span>
                     </button>
                   </div>
+
+                  {/* Start Work Button - only show if no active work chunk */}
+                  {!workChunks.some(chunk => chunk.is_active) && (
+                    <button
+                      type="button"
+                      onClick={handleStartWork}
+                      className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 ${c.checkboxChecked} text-white rounded-lg hover:opacity-90 transition-opacity font-medium text-sm`}
+                    >
+                      <Play className="h-4 w-4" />
+                      Start Work
+                    </button>
+                  )}
 
                   {workChunks.length > 0 && (
                     <div className={`${c.moduleHeader} border ${c.moduleBorder} p-3 rounded-lg space-y-2`}>

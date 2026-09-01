@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
   BookOpen, Calendar, Settings, LogOut, Palette, ChevronDown, ChevronUp, Home,
-  PanelLeftClose, PanelLeft, Award, Menu, X, LayoutGrid, BarChart3, GraduationCap, Plus
+  PanelLeftClose, PanelLeft, Award, Menu, X, LayoutGrid, BarChart3, GraduationCap, Plus, Search
 } from 'lucide-react';
 import CoursesView from './CoursesView';
 import AgendaView  from './AgendaView'; // Named import matches export const AgendaView
@@ -15,6 +15,7 @@ import SettingsView from './SettingsView';
 import GradesView from './GradesView';
 import PlannerView from './PlannerView';
 import AnalyticsDashboard from './AnalyticsDashboard';
+import SearchView from './SearchView';
 import CourseSetupModal from './CourseSetupModal';
 import ActivityCreateModal from './ActivityCreateModal';
 import { themes } from '@/lib/themes';
@@ -49,7 +50,7 @@ export default function MainLayout() {
   const { signOut, user, kids, selectedKid, setSelectedKid } = useAuth();
   const { theme, currentTheme, changeTheme } = useTheme();
   
-  const [selectedView, setSelectedView] = useState<'agenda' | 'calendar' | 'planner' | 'courses' | 'settings' | 'grades' | 'analytics'>('agenda');
+  const [selectedView, setSelectedView] = useState<'agenda' | 'calendar' | 'planner' | 'courses' | 'settings' | 'grades' | 'analytics' | 'search'>('agenda');
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [selectedSchoolYear, setSelectedSchoolYear] = useState<string>('');
   
@@ -152,6 +153,7 @@ export default function MainLayout() {
         { id: 'agenda', label: 'Agenda', Icon: Home },
         { id: 'calendar', label: 'Calendar', Icon: Calendar },
         { id: 'planner', label: 'Planner', Icon: LayoutGrid },
+        { id: 'search', label: 'Search', Icon: Search },
         { id: 'analytics', label: 'Analytics', Icon: BarChart3 },
         { id: 'grades', label: 'Grades', Icon: Award },
       ].map(({ id, label, Icon }) => (
@@ -429,6 +431,8 @@ export default function MainLayout() {
             <CalendarView kidId={selectedKid.id} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />
           ) : selectedView === 'planner' && selectedKid ? (
             <PlannerView kidId={selectedKid.id} selectedDate={selectedDate} setSelectedDate={setSelectedDate} />
+          ) : selectedView === 'search' && selectedKid ? (
+            <SearchView kidId={selectedKid.id} academicYear={selectedSchoolYear} />
           ) : selectedView === 'grades' && selectedKid ? (
             <GradesView kidId={selectedKid.id} selectedCourse={selectedCourse} schoolYear={selectedSchoolYear} />
           ) : selectedView === 'analytics' && selectedKid ? (
