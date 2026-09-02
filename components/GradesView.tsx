@@ -123,16 +123,6 @@ export default function GradesView({ kidId, selectedCourse, schoolYear }: Grades
     });
   }, [grades, selectedCourseFilter, statusFilter]);
 
-  // 4. Group filtered grades by course
-  const gradesByCourse = useMemo(() => {
-    return filteredGrades.reduce<Record<string, Grade[]>>((acc, grade) => {
-      if (!acc[grade.course_name]) {
-        acc[grade.course_name] = [];
-      }
-      acc[grade.course_name].push(grade);
-      return acc;
-    }, {});
-  }, [filteredGrades]);
 
   const getScorePercentage = (score: number | null, possible: number | null) => {
     if (score === null || possible === null || possible === 0) return null;
@@ -283,114 +273,106 @@ export default function GradesView({ kidId, selectedCourse, schoolYear }: Grades
         </div>
       </div>
 
-      {/* --- SECTION 3: COURSE-BY-COURSE BREAKDOWN --- */}
-      {Object.keys(gradesByCourse).length === 0 ? (
+      {/* --- SECTION 3: ALL GRADES LIST --- */}
+      {filteredGrades.length === 0 ? (
         <div className="border-2 border-dashed border-gray-200 py-12 rounded-xl text-center">
           <Award className="h-12 mb-3 mx-auto text-gray-300 w-12" />
-          <p className={`font-medium ${c.activityText}`}>No assignments match your current filter.</p>
+          <p className={`font-medium ${c.activityText}`}>No graded assignments match your current filter.</p>
         </div>
       ) : (
-        <div className="space-y-6">
-          {Object.entries(gradesByCourse).map(([courseName, courseGrades]) => (
-            <div
-              key={courseName}
-              className={`${c.cardBg} border ${c.divider} rounded-xl shadow-sm overflow-hidden`}
-            >
-              {/* Course Header Banner */}
-              <div className="bg-gray-50/80 border-b border-gray-100 flex items-center justify-between px-5 py-3">
-                <div className="flex gap-2 items-center">
-                  <BookOpen className="h-5 text-blue-600 w-5" />
-                  <h3 className={`font-bold text-base ${c.moduleText}`}>{courseName}</h3>
-                </div>
-                <span className="bg-white border border-gray-200 font-semibold px-2.5 py-1 rounded-full text-gray-500 text-xs">
-                  {courseGrades.length} {courseGrades.length === 1 ? 'item' : 'items'}
-                </span>
-              </div>
+        <div className={`${c.cardBg} border ${c.divider} rounded-xl shadow-sm overflow-hidden`}>
+          {/* Assignment Item List */}
+          <div className="divide-gray-100 divide-y">
+            {filteredGrades.map((grade) => {
+              const pct = getScorePercentage(grade.score, grade.points_possible);
 
-              {/* Assignment Item List */}
-              <div className="divide-gray-100 divide-y">
-                {courseGrades.map((grade) => {
-                  const pct = getScorePercentage(grade.score, grade.points_possible);
-
-                  return (
-                    <div key={grade.id} className="hover:bg-gray-50/50 p-4 space-y-3 transition-colors">
-                      <div className="flex flex-col gap-2 justify-between sm:flex-row sm:items-center">
-                        {/* Title & Status */}
-                        <div className="flex-1">
-                          <div className="flex flex-wrap gap-2 items-center">
-                            <h4 className={`font-semibold text-sm ${c.moduleText}`}>
-                              {grade.activity_title}
-                            </h4>
-                            {grade.missing && (
-                              <span className="bg-rose-100 font-medium gap-1 inline-flex items-center px-2 py-0.5 rounded text-rose-700 text-xs">
-                                <AlertCircle className="h-3 w-3" /> Missing
-                              </span>
-                            )}
-                            {grade.late && (
-                              <span className="bg-amber-100 font-medium gap-1 inline-flex items-center px-2 py-0.5 rounded text-amber-700 text-xs">
-                                <Clock className="h-3 w-3" /> Late
-                              </span>
-                            )}
-                            {grade.needs_grading && (
-                              <span className="bg-blue-100 font-medium gap-1 inline-flex items-center px-2 py-0.5 rounded text-blue-700 text-xs">
-                                <Clock className="h-3 w-3" /> Pending Grade
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="flex gap-3 items-center mt-1 text-gray-500 text-xs">
-                            {grade.due_date && (
-                              <span>Due: {formatDateLocal(grade.due_date, 'M/d/yy')}</span>
-                            )}
-                            {grade.submitted_at && (
-                              <span>Submitted: {formatDateLocal(grade.submitted_at, 'M/d/yy')}</span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Score Display */}
-                        <div className="flex gap-3 items-center sm:block text-right">
-                          {grade.score !== null ? (
-                            <div>
-                              <span className={`text-base font-bold ${getGradeColor(grade)}`}>
-                                {grade.score}
-                                {grade.points_possible !== null && ` / ${grade.points_possible}`}
-                              </span>
-                              {pct !== null && (
-                                <span className={`ml-2 text-xs font-bold px-2 py-0.5 rounded-md border ${getScoreBadgeClass(pct)}`}>
-                                  {pct}%
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="italic text-gray-400 text-xs">Unscored</span>
-                          )}
-                        </div>
+              return (
+                <div key={grade.id} className="hover:bg-gray-50/50 p-4 space-y-3 transition-colors">
+                  <div className="flex flex-col gap-2 justify-between sm:flex-row sm:items-center">
+                    {/* Title & Course */}
+                    <div className="flex-1">
+                      <div className="flex flex-wrap gap-2 items-center mb-1">
+                        <span className="bg-blue-50 font-semibold px-2 py-0.5 rounded text-blue-700 text-xs">
+                          {grade.course_name}
+                        </span>
+                        {grade.graded_at && (
+                          <span className="text-gray-500 text-xs">
+                            {formatDateLocal(grade.graded_at, 'MMM d, yyyy')}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <h4 className={`font-semibold text-sm ${c.moduleText}`}>
+                          {grade.activity_title}
+                        </h4>
+                        {grade.missing && (
+                          <span className="bg-rose-100 font-medium gap-1 inline-flex items-center px-2 py-0.5 rounded text-rose-700 text-xs">
+                            <AlertCircle className="h-3 w-3" /> Missing
+                          </span>
+                        )}
+                        {grade.late && (
+                          <span className="bg-amber-100 font-medium gap-1 inline-flex items-center px-2 py-0.5 rounded text-amber-700 text-xs">
+                            <Clock className="h-3 w-3" /> Late
+                          </span>
+                        )}
+                        {grade.needs_grading && (
+                          <span className="bg-blue-100 font-medium gap-1 inline-flex items-center px-2 py-0.5 rounded text-blue-700 text-xs">
+                            <Clock className="h-3 w-3" /> Pending Grade
+                          </span>
+                        )}
                       </div>
 
-                      {/* Teacher Feedback Callout */}
-                      {grade.submission_comments && grade.submission_comments.length > 0 && (
-                        <div className="bg-blue-50/60 border border-blue-100 mt-2 p-3 rounded-lg space-y-2 text-xs">
-                          <div className="flex font-semibold gap-1.5 items-center text-blue-900">
-                            <MessageSquare className="h-3.5 text-blue-600 w-3.5" />
-                            <span>Teacher Feedback</span>
-                          </div>
-                          {grade.submission_comments.map((comment, idx) => (
-                            <div key={idx} className="border-blue-300 border-l-2 pl-5">
-                              <p className="text-gray-800">{comment.comment}</p>
-                              <span className="block mt-0.5 text-[10px] text-gray-500">
-                                — {typeof comment.author === 'string' ? comment.author : comment.author?.display_name || 'Teacher'}
-                              </span>
-                            </div>
-                          ))}
+                      <div className="flex gap-3 items-center mt-1 text-gray-500 text-xs">
+                        {grade.due_date && (
+                          <span>Due: {formatDateLocal(grade.due_date, 'M/d/yy')}</span>
+                        )}
+                        {grade.submitted_at && (
+                          <span>Submitted: {formatDateLocal(grade.submitted_at, 'M/d/yy')}</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Score Display */}
+                    <div className="flex gap-3 items-center sm:block text-right">
+                      {grade.score !== null ? (
+                        <div>
+                          <span className={`text-base font-bold ${getGradeColor(grade)}`}>
+                            {grade.score}
+                            {grade.points_possible !== null && ` / ${grade.points_possible}`}
+                          </span>
+                          {pct !== null && (
+                            <span className={`ml-2 text-xs font-bold px-2 py-0.5 rounded-md border ${getScoreBadgeClass(pct)}`}>
+                              {pct}%
+                            </span>
+                          )}
                         </div>
+                      ) : (
+                        <span className="italic text-gray-400 text-xs">Unscored</span>
                       )}
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
+                  </div>
+
+                  {/* Teacher Feedback Callout */}
+                  {grade.submission_comments && grade.submission_comments.length > 0 && (
+                    <div className="bg-blue-50/60 border border-blue-100 mt-2 p-3 rounded-lg space-y-2 text-xs">
+                      <div className="flex font-semibold gap-1.5 items-center text-blue-900">
+                        <MessageSquare className="h-3.5 text-blue-600 w-3.5" />
+                        <span>Teacher Feedback</span>
+                      </div>
+                      {grade.submission_comments.map((comment, idx) => (
+                        <div key={idx} className="border-blue-300 border-l-2 pl-5">
+                          <p className="text-gray-800">{comment.comment}</p>
+                          <span className="block mt-0.5 text-[10px] text-gray-500">
+                            — {typeof comment.author === 'string' ? comment.author : comment.author?.display_name || 'Teacher'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

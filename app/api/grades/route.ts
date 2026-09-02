@@ -103,41 +103,52 @@ export async function GET(request: Request) {
       }
     }
 
-    const grades = filteredGradesData.map((grade) => {
-      const activity = grade.lms_assignment_id
-        ? activitiesMap[grade.lms_assignment_id]
-        : null;
+    const grades = filteredGradesData
+      .filter((grade) => {
+        // Only show graded assignments (exclude ungraded/unsubmitted)
+        return grade.score !== null || grade.grade !== null;
+      })
+      .map((grade) => {
+        const activity = grade.lms_assignment_id
+          ? activitiesMap[grade.lms_assignment_id]
+          : null;
 
-      // Try to get points_possible from: activity table, lms_grade_data, or activity_assignments
-      let pointsPossible = activity?.points_possible || null;
-      if (!pointsPossible && grade.lms_grade_data?.points_possible) {
-        pointsPossible = grade.lms_grade_data.points_possible;
-      }
+        // Try to get points_possible from: activity table, lms_grade_data, or activity_assignments
+        let pointsPossible = activity?.points_possible || null;
+        if (!pointsPossible && grade.lms_grade_data?.points_possible) {
+          pointsPossible = grade.lms_grade_data.points_possible;
+        }
 
-      const courseRef = Array.isArray(grade.courses) ? grade.courses[0] : grade.courses;
-      const calendar = Array.isArray(courseRef?.school_calendars)
-        ? courseRef.school_calendars[0]
-        : courseRef?.school_calendars;
-      const schoolYearName = calendar?.school_year_name;
+        const courseRef = Array.isArray(grade.courses) ? grade.courses[0] : grade.courses;
+        const calendar = Array.isArray(courseRef?.school_calendars)
+          ? courseRef.school_calendars[0]
+          : courseRef?.school_calendars;
+        const schoolYearName = calendar?.school_year_name;
 
-      return {
-        id: grade.id,
-        activity_title: activity?.title || grade.lms_grade_data?.assignment_name || 'Untitled Assignment',
-        course_name: courseRef?.course_name || 'Unknown Course',
-        school_year: schoolYearName,
-        score: grade.score,
-        grade: grade.grade,
-        points_possible: pointsPossible,
-        submitted_at: grade.submitted_at,
-        graded_at: grade.graded_at,
-        late: grade.late || false,
-        missing: grade.missing || false,
-        needs_grading: grade.needs_grading || false,
-        workflow_state: grade.workflow_state,
-        submission_comments: grade.submission_comments || null,
-        due_date: activity?.due_date || grade.lms_grade_data?.due_at || null,
-      };
-    });
+        return {
+          id: grade.id,
+          activity_title: activity?.title || grade.lms_grade_data?.assignment_name || 'Untitled Assignment',
+          course_name: courseRef?.course_name || 'Unknown Course',
+          school_year: schoolYearName,
+          score: grade.score,
+          grade: grade.grade,
+          points_possible: pointsPossible,
+          submitted_at: grade.submitted_at,
+          graded_at: grade.graded_at,
+          late: grade.late || false,
+          missing: grade.missing || false,
+          needs_grading: grade.needs_grading || false,
+          workflow_state: grade.workflow_state,
+          submission_comments: grade.submission_comments || null,
+          due_date: activity?.due_date || grade.lms_grade_data?.due_at || null,
+        };
+      })
+      .sort((a, b) => {
+        // Sort by latest graded_at or submitted_at
+        const aDate = new Date(a.graded_at || a.submitted_at || 0);
+        const bDate = new Date(b.graded_at || b.submitted_at || 0);
+        return bDate.getTime() - aDate.getTime();
+      });
 
     return NextResponse.json(grades);
   } catch (error: any) {
