@@ -35,10 +35,10 @@ export async function GET(request: Request) {
     lms_grade_data,
     course_id,
     lms_assignment_id,
-    courses!inner (
+    courses (
       course_name,
       calendar_id,
-      school_calendars!inner (
+      school_calendars (
         school_year_name
       )
     )
@@ -104,11 +104,14 @@ export async function GET(request: Request) {
       }
 
       const courseRef = Array.isArray(grade.courses) ? grade.courses[0] : grade.courses;
+      const schoolYearName = courseRef?.school_calendars?.school_year_name ||
+                             (Array.isArray(courseRef?.school_calendars) ? courseRef.school_calendars[0]?.school_year_name : null);
 
       return {
         id: grade.id,
         activity_title: activity?.title || 'Untitled Assignment',
         course_name: courseRef?.course_name || 'Unknown Course',
+        school_year: schoolYearName,
         score: grade.score,
         grade: grade.grade,
         points_possible: pointsPossible,
