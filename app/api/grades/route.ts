@@ -69,8 +69,10 @@ export async function GET(request: Request) {
     if (schoolYear) {
       filteredGradesData = gradesData.filter((grade) => {
         const courseRef = Array.isArray(grade.courses) ? grade.courses[0] : grade.courses;
-        const schoolYearName = courseRef?.school_calendars?.school_year_name ||
-                               (Array.isArray(courseRef?.school_calendars) ? courseRef.school_calendars[0]?.school_year_name : null);
+        const calendar = Array.isArray(courseRef?.school_calendars)
+          ? courseRef.school_calendars[0]
+          : courseRef?.school_calendars;
+        const schoolYearName = calendar?.school_year_name;
         return schoolYearName === schoolYear;
       });
     }
@@ -113,8 +115,10 @@ export async function GET(request: Request) {
       }
 
       const courseRef = Array.isArray(grade.courses) ? grade.courses[0] : grade.courses;
-      const schoolYearName = courseRef?.school_calendars?.school_year_name ||
-                             (Array.isArray(courseRef?.school_calendars) ? courseRef.school_calendars[0]?.school_year_name : null);
+      const calendar = Array.isArray(courseRef?.school_calendars)
+        ? courseRef.school_calendars[0]
+        : courseRef?.school_calendars;
+      const schoolYearName = calendar?.school_year_name;
 
       return {
         id: grade.id,
