@@ -28,10 +28,6 @@ export async function syncCourses(params: SyncParams): Promise<SyncResult> {
     }
   };
 
-  if (!kid_id && !course_id && !course_ids) {
-    throw new Error('Must provide kid_id, course_id, or course_ids');
-  }
-
   const supabase = getServiceRoleClient();
 
   // Determine which courses to sync
@@ -119,6 +115,37 @@ export async function syncCourses(params: SyncParams): Promise<SyncResult> {
 
     if (error) throw error;
     coursesToSync = data || [];
+  } else {
+    // No specific kid/course provided - sync ALL courses with LMS mappings
+    // Default to current school year if not specified
+    let query = supabase
+      .from('courses')
+      .select(`
+        id,
+        course_name,
+        school_id,
+        lms_course_id,
+        source_type,
+        kid_id,
+        calendar_id,
+        school_calendars!inner (
+          school_year_name
+        )
+      `)
+      .not('lms_course_id', 'is', null);
+
+    if (school_year) {
+      query = query.eq('school_calendars.school_year_name', school_year);
+    }
+
+    const { data, error } = await query;
+
+    if (error) throw error;
+    coursesToSync = data || [];
+
+    if (coursesToSync.length > 0) {
+      log(`📚 Syncing all courses with LMS mappings${school_year ? ` for school year ${school_year}` : ''}\n`);
+    }
   }
 
   if (coursesToSync.length === 0) {

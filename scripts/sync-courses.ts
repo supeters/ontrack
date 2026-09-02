@@ -4,12 +4,12 @@
  * CLI script for syncing courses
  *
  * Usage:
- *   npx tsx scripts/sync-courses.ts --kid-id 3
- *   npx tsx scripts/sync-courses.ts --course-id 59
- *   npx tsx scripts/sync-courses.ts --course-id 59 --school-year "2024-25"
- *   npx tsx scripts/sync-courses.ts --course-ids 59,60,61
- *   npx tsx scripts/sync-courses.ts --course-id 59
- *   npx tsx scripts/sync-courses.ts --kid-id 3 --no-calculate-dates
+ *   npx tsx scripts/sync-courses.ts                                    # Sync ALL courses with LMS mappings
+ *   npx tsx scripts/sync-courses.ts --school-year "2025-26"            # Sync all courses for a specific year
+ *   npx tsx scripts/sync-courses.ts --kid-id 3                         # Sync courses for a specific kid
+ *   npx tsx scripts/sync-courses.ts --course-id 59                     # Sync a specific course
+ *   npx tsx scripts/sync-courses.ts --course-ids 59,60,61              # Sync multiple courses
+ *   npx tsx scripts/sync-courses.ts --kid-id 3 --no-calculate-dates    # Skip date calculations
  */
 
 import dotenv from 'dotenv';
@@ -41,26 +41,20 @@ const kidId = kidIdStr ? parseInt(kidIdStr) : undefined;
 const courseId = courseIdStr ? parseInt(courseIdStr) : undefined;
 const courseIds = courseIdsStr ? courseIdsStr.split(',').map(id => parseInt(id.trim())) : undefined;
 
-// Validate arguments
-if (!kidId && !courseId && !courseIds) {
-  console.error('❌ Must provide --kid-id, --course-id, or --course-ids');
-  console.log('\nUsage:');
-  console.log('  npx tsx scripts/sync-courses.ts --kid-id 3');
-  console.log('  npx tsx scripts/sync-courses.ts --course-id 59');
-  console.log('  npx tsx scripts/sync-courses.ts --course-ids 59,60,61');
-  console.log('  npx tsx scripts/sync-courses.ts --course-id 59');
-  console.log('  npx tsx scripts/sync-courses.ts --kid-id 3 --no-calculate-dates');
-  process.exit(1);
-}
+// No validation needed - if no params provided, sync all courses
 
 // Run the sync
 console.log('🚀 Sync Courses CLI');
 console.log('════════════════════════════════════════');
-console.log(`Calculate dates: ${calculateDates}`);
+if (!kidId && !courseId && !courseIds) {
+  console.log('Mode: Sync ALL courses with LMS mappings');
+} else {
+  if (kidId) console.log(`Kid ID: ${kidId}`);
+  if (courseId) console.log(`Course ID: ${courseId}`);
+  if (courseIds) console.log(`Course IDs: ${courseIds.join(', ')}`);
+}
 if (schoolYear) console.log(`School Year: ${schoolYear}`);
-if (kidId) console.log(`Kid ID: ${kidId}`);
-if (courseId) console.log(`Course ID: ${courseId}`);
-if (courseIds) console.log(`Course IDs: ${courseIds.join(', ')}`);
+console.log(`Calculate dates: ${calculateDates}`);
 console.log('════════════════════════════════════════\n');
 
 syncCourses({

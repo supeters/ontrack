@@ -12,6 +12,7 @@ import { syncCourses } from '@/lib/sync/orchestrator';
  *   - course_ids: number[] (optional) - Sync specific courses
  *   - calculate_dates: boolean (default: true) - Whether to calculate plan dates after sync
  *   - school_year: string (optional) - Filter courses by school year
+ *   - (if none provided, syncs ALL courses with LMS mappings)
  *
  * Returns: Server-Sent Events stream with progress updates
  */
@@ -20,12 +21,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { kid_id, course_id, course_ids, school_year, calculate_dates = true } = body;
 
-    if (!kid_id && !course_id && !course_ids) {
-      return NextResponse.json(
-        { error: 'Must provide kid_id, course_id, or course_ids' },
-        { status: 400 }
-      );
-    }
+    // No validation - if no params provided, sync all courses
 
     // Create streaming response
     const encoder = new TextEncoder();
