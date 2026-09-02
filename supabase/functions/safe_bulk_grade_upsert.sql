@@ -20,6 +20,7 @@ RETURNS TABLE (
   error_message text
 )
 LANGUAGE plpgsql
+SECURITY DEFINER
 AS $$
 DECLARE
   record jsonb;
