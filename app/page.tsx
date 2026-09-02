@@ -1,13 +1,16 @@
 'use client';
 
+import { useState } from 'react';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import Auth from '@/components/Auth';
 import MainLayout from '@/components/MainLayout';
 import PWAInstaller from '@/components/PWAInstaller';
+import LandingPage from '@/components/LandingPage';
 
 function AppContent() {
   const { user, loading } = useAuth();
+  const [showAuth, setShowAuth] = useState(false);
 
   if (loading) {
     return (
@@ -21,7 +24,7 @@ function AppContent() {
   }
 
   if (!user) {
-    return <Auth />;
+    return showAuth ? <Auth /> : <LandingPage onGetStarted={() => setShowAuth(true)} />;
   }
 
   return <MainLayout />;
