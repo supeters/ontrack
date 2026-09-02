@@ -410,7 +410,9 @@ export async function syncCanvasCourse(params: CanvasSyncParams): Promise<void> 
             grade_matches_current_submission: submission.grade_matches_current_submission,
             points_possible: assignment.points_possible,
             excused: submission.excused,
-            attempt: submission.attempt
+            attempt: submission.attempt,
+            assignment_name: assignment.name,
+            due_at: assignment.due_at
           },
 
           last_sync_date: new Date().toISOString()
@@ -422,14 +424,27 @@ export async function syncCanvasCourse(params: CanvasSyncParams): Promise<void> 
 
     if (gradeRecords.length > 0) {
       // Bulk upsert grades
-      const { error: gradeError } = await supabase.rpc('safe_bulk_grade_upsert', {
+      const { data: gradeResults, error: gradeError } = await supabase.rpc('safe_bulk_grade_upsert', {
         grade_records: gradeRecords
       });
 
       if (gradeError) {
-        log(`   ⚠️  Grade sync warning: ${gradeError.message}`);
-      } else {
-        log(`   ✅ Synced ${gradeRecords.length} grades`);
+        log(`   ⚠️  Grade sync error: ${gradeError.message}`);
+      } else if (gradeResults) {
+        const inserted = gradeResults.filter((r: any) => r.was_inserted).length;
+        const updated = gradeResults.filter((r: any) => r.was_updated).length;
+        const errors = gradeResults.filter((r: any) => r.error_message).length;
+
+        log(`   ✅ Grades: ${inserted} inserted, ${updated} updated`);
+
+        if (errors > 0) {
+          log(`   ⚠️  ${errors} grade(s) had errors:`);
+          gradeResults
+            .filter((r: any) => r.error_message)
+            .forEach((r: any) => {
+              log(`      Assignment ${r.lms_assignment_id}: ${r.error_message}`);
+            });
+        }
       }
     }
   } catch (gradeError: any) {

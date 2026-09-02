@@ -42,8 +42,8 @@ BEGIN
       -- Check if grade exists
       SELECT id INTO existing_grade_id
       FROM activity_grades
-      WHERE lms_assignment_id = record_assignment_id
-        AND kid_id = record_kid_id;
+      WHERE activity_grades.lms_assignment_id = record_assignment_id
+        AND activity_grades.kid_id = record_kid_id;
 
       IF existing_grade_id IS NOT NULL THEN
         -- Update existing grade

@@ -118,7 +118,7 @@ export async function GET(request: Request) {
 
       return {
         id: grade.id,
-        activity_title: activity?.title || 'Untitled Assignment',
+        activity_title: activity?.title || grade.lms_grade_data?.assignment_name || 'Untitled Assignment',
         course_name: courseRef?.course_name || 'Unknown Course',
         school_year: schoolYearName,
         score: grade.score,
@@ -131,7 +131,7 @@ export async function GET(request: Request) {
         needs_grading: grade.needs_grading || false,
         workflow_state: grade.workflow_state,
         submission_comments: grade.submission_comments || null,
-        due_date: activity?.due_date || null,
+        due_date: activity?.due_date || grade.lms_grade_data?.due_at || null,
       };
     });
 
