@@ -205,6 +205,61 @@ async function clearNonActionablePlanDates(courseId: number, supabase: any): Pro
   return nonActionableWithDates.length;
 }
 
+function hasWorkgroupPattern(title: string): boolean {
+  const patterns = [
+    /due\s+(on\s+)?day\s+1/i,
+    /due\s+(on\s+)?day\s+2/i,
+    /homework\s+due.*next\s+week/i,
+    /end\s+of\s+(the\s+)?week/i,
+    /due\s+(at|on)\s+end\s+of\s+(the\s+)?week/i
+  ];
+  return patterns.some(pattern => pattern.test(title));
+}
+
+function calculateWorkgroupPlanDate(
+  weekStartDate: { year: number; month: number; day: number },
+  title: string,
+  workDays: string
+): string {
+  const normalizedTitle = title.toLowerCase();
+
+  // Offset mappings relative to Sunday (weekStartDate)
+  const workDaysMap: Record<string, Record<string, number>> = {
+    // 135: Mon (+1), Wed (+3), Fri (+5)
+    '135': { '1': 1, '2': 3, '3': 5, endOfWeek: 5 },
+    // 524: Prev Fri (-2), Tue (+2), Thu (+4)
+    '524': { '1': -2, '2': 2, '3': 4, endOfWeek: 4 }
+  };
+
+  const offsets = workDaysMap[workDays] || workDaysMap['135'];
+
+  // 1. Treat "End of Week" AND "Next Week Day 1" as End of Week
+  const isEndOfWeek = /end\s+of\s+(the\s+)?week/i.test(normalizedTitle);
+  const isNextWeekDay1 = /next\s+week.*day\s+1/i.test(normalizedTitle);
+
+  if (isEndOfWeek || isNextWeekDay1) {
+    return formatDateString(
+      addDaysToDate(weekStartDate.year, weekStartDate.month, weekStartDate.day, offsets.endOfWeek)
+    );
+  }
+
+  // 2. Parse "Due Day X" (Due Day 1, Due Day 2, etc.)
+  const dayMatch = normalizedTitle.match(/due\s+(?:on\s+)?day\s+(\d+)/i);
+  if (dayMatch) {
+    const dayNum = dayMatch[1];
+    const offset = offsets[dayNum] ?? offsets.endOfWeek;
+
+    return formatDateString(
+      addDaysToDate(weekStartDate.year, weekStartDate.month, weekStartDate.day, offset)
+    );
+  }
+
+  // Default: end of week (Friday for 135, Thursday for 524)
+  return formatDateString(
+    addDaysToDate(weekStartDate.year, weekStartDate.month, weekStartDate.day, offsets.endOfWeek)
+  );
+}
+
 /**
  * School ID = 2: Position-based calculation
  */
@@ -400,16 +455,38 @@ async function calculateWeekPatternBased(course: any, supabase: any, log: (msg: 
       modulesUpdatedCount++;
     }
 
-    // Process children
+    // Process direct children (workgroups and assignments)
     const directChildren = allActivities.filter((a: any) =>
-      a.parent_activity_id === module.id && a.is_action === true
+      a.parent_activity_id === module.id
     );
+
     for (const child of directChildren) {
-      if (!child.is_pinned && child.item_needs_processing) {
+      let planDate: string;
+
+      // Check if this is a workgroup with a due day pattern
+      if (child.activity_type === 'workgroup' && hasWorkgroupPattern(child.title)) {
+        planDate = calculateWorkgroupPlanDate(weekStartDate, child.title, course.work_days || '135');
+      } else {
+        // Default to Friday
         const fridayDate = addDaysToDate(weekStartDate.year, weekStartDate.month, weekStartDate.day, 5);
-        const planDate = formatDateString(fridayDate);
+        planDate = formatDateString(fridayDate);
+      }
+
+      // Update workgroup or assignment if it's actionable
+      if ((child.activity_type === 'workgroup' || child.is_action === true) && !child.is_pinned && child.item_needs_processing) {
         updates.push({ id: child.id, plan_date: planDate });
         assignmentsUpdatedCount++;
+      }
+
+      // Process children of workgroups (assignments under workgroups)
+      const subChildren = allActivities.filter((a: any) =>
+        a.parent_activity_id === child.id && a.is_action === true
+      );
+      for (const subChild of subChildren) {
+        if (!subChild.is_pinned && subChild.item_needs_processing) {
+          updates.push({ id: subChild.id, plan_date: planDate });
+          assignmentsUpdatedCount++;
+        }
       }
     }
   }
