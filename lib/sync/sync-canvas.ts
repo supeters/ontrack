@@ -365,6 +365,78 @@ export async function syncCanvasCourse(params: CanvasSyncParams): Promise<void> 
     }
   }
 
+  // Step 5: Sync grades and teacher comments
+  log(`📊 Syncing grades and teacher comments...`);
+  try {
+    const gradesUrl = `${lmsAccount.lms_url}/api/v1/courses/${course.lms_course_id}/assignments?include[]=submission&include[]=submission_comments&per_page=100`;
+    const assignments = await canvasFetchAll(gradesUrl, lmsAccount.api_token);
+
+    const gradeRecords = [];
+
+    for (const assignment of assignments) {
+      if (assignment.submission) {
+        const submission = assignment.submission;
+
+        gradeRecords.push({
+          lms_assignment_id: assignment.id.toString(),
+          kid_id: course.kid_id,
+          course_id: course.id,
+          lms_source: 'canvas',
+
+          // Submission info
+          submitted_at: submission.submitted_at,
+          submission_type: submission.submission_type,
+          workflow_state: submission.workflow_state,
+          submission_url: submission.preview_url || submission.url || null,
+
+          // Grade info
+          score: submission.score,
+          grade: submission.grade,
+          graded_at: submission.graded_at,
+
+          // Status
+          late: submission.late || false,
+          missing: submission.missing || false,
+          needs_grading: submission.workflow_state === 'submitted' && !submission.graded_at,
+
+          // Comments and rubric from teacher - handle both locations
+          submission_comments: submission.submission_comments || assignment.submission_comments || null,
+          rubric_assessment: submission.rubric_assessment || null,
+
+          // LMS data
+          lms_submission_id: submission.id?.toString(),
+          lms_grade_data: {
+            canvas_submission_id: submission.id,
+            grade_matches_current_submission: submission.grade_matches_current_submission,
+            points_possible: assignment.points_possible,
+            excused: submission.excused,
+            attempt: submission.attempt
+          },
+
+          last_sync_date: new Date().toISOString()
+        });
+      }
+    }
+
+    log(`   📊 Prepared ${gradeRecords.length} grade records`);
+
+    if (gradeRecords.length > 0) {
+      // Bulk upsert grades
+      const { error: gradeError } = await supabase.rpc('safe_bulk_grade_upsert', {
+        grade_records: gradeRecords
+      });
+
+      if (gradeError) {
+        log(`   ⚠️  Grade sync warning: ${gradeError.message}`);
+      } else {
+        log(`   ✅ Synced ${gradeRecords.length} grades`);
+      }
+    }
+  } catch (gradeError: any) {
+    log(`   ⚠️  Grade sync failed: ${gradeError.message}`);
+    // Continue - don't fail the whole sync if grades fail
+  }
+
   // Update last sync timestamp
   await supabase
     .from('courses')

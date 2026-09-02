@@ -32,6 +32,7 @@ export async function GET(request: Request) {
     needs_grading,
     workflow_state,
     submission_comments,
+    lms_grade_data,
     course_id,
     lms_assignment_id,
     courses!inner (
@@ -69,59 +70,48 @@ export async function GET(request: Request) {
       return NextResponse.json([]);
     }
 
-    // Fetch assignment details for each grade
+    // Fetch activity details for each grade by lms_assignment_id
     const lmsAssignmentIds = gradesData
       .map((g) => g.lms_assignment_id)
       .filter(Boolean);
 
-    let assignmentsMap: Record<string, any> = {};
-    let activitiesMap: Record<string, string> = {};
+    let activitiesMap: Record<string, any> = {};
 
     if (lmsAssignmentIds.length > 0) {
-      const [assignmentsRes, activitiesRes] = await Promise.all([
-        supabase
-          .from('activity_assignments')
-          .select('lms_assignment_id, points_possible, due_date, description')
-          .in('lms_assignment_id', lmsAssignmentIds),
-        supabase
-          .from('activities')
-          .select('lms_assignment_id, title')
-          .in('lms_assignment_id', lmsAssignmentIds)
-      ]);
+      const { data: activitiesData } = await supabase
+        .from('activities')
+        .select('lms_assignment_id, title, due_date, points_possible')
+        .in('lms_assignment_id', lmsAssignmentIds);
 
-      if (assignmentsRes.data) {
-        assignmentsMap = assignmentsRes.data.reduce((acc, assignment) => {
-          acc[assignment.lms_assignment_id] = assignment;
-          return acc;
-        }, {} as Record<string, any>);
-      }
-
-      if (activitiesRes.data) {
-        activitiesRes.data.forEach((activity) => {
+      if (activitiesData) {
+        activitiesData.forEach((activity) => {
           if (activity.lms_assignment_id) {
-            activitiesMap[activity.lms_assignment_id] = activity.title;
+            activitiesMap[activity.lms_assignment_id] = activity;
           }
         });
       }
     }
 
     const grades = gradesData.map((grade) => {
-      const assignment = grade.lms_assignment_id
-        ? assignmentsMap[grade.lms_assignment_id]
-        : null;
-      const activityTitle = grade.lms_assignment_id
+      const activity = grade.lms_assignment_id
         ? activitiesMap[grade.lms_assignment_id]
         : null;
+
+      // Try to get points_possible from: activity table, lms_grade_data, or activity_assignments
+      let pointsPossible = activity?.points_possible || null;
+      if (!pointsPossible && grade.lms_grade_data?.points_possible) {
+        pointsPossible = grade.lms_grade_data.points_possible;
+      }
 
       const courseRef = Array.isArray(grade.courses) ? grade.courses[0] : grade.courses;
 
       return {
         id: grade.id,
-        activity_title: activityTitle || 'Untitled Assignment',
+        activity_title: activity?.title || 'Untitled Assignment',
         course_name: courseRef?.course_name || 'Unknown Course',
         score: grade.score,
         grade: grade.grade,
-        points_possible: assignment?.points_possible || null,
+        points_possible: pointsPossible,
         submitted_at: grade.submitted_at,
         graded_at: grade.graded_at,
         late: grade.late || false,
@@ -129,7 +119,7 @@ export async function GET(request: Request) {
         needs_grading: grade.needs_grading || false,
         workflow_state: grade.workflow_state,
         submission_comments: grade.submission_comments || null,
-        due_date: assignment?.due_date || null,
+        due_date: activity?.due_date || null,
       };
     });
 

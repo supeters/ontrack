@@ -473,6 +473,162 @@ export async function syncMoodleCourse(params: MoodleSyncParams): Promise<void> 
       log(`   📊 No items to delete`);
     }
   }
+
+  // Step 5: Sync grades and teacher comments
+  log(`📊 Syncing grades and teacher comments...`);
+  try {
+    // Fetch all assignments for this course - need to manually build array params
+    const assignmentsBody = new URLSearchParams();
+    assignmentsBody.append('wstoken', lmsAccount.api_token);
+    assignmentsBody.append('wsfunction', 'mod_assign_get_assignments');
+    assignmentsBody.append('moodlewsrestformat', 'json');
+    assignmentsBody.append('courseids[0]', course.lms_course_id);
+
+    const assignmentsResponse = await fetch(`${lmsAccount.lms_url}/webservice/rest/server.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: assignmentsBody
+    });
+
+    const assignments = await assignmentsResponse.json();
+
+    if (assignments.exception) {
+      throw new Error(`Moodle API Error (mod_assign_get_assignments): ${assignments.message}`);
+    }
+
+    const courseAssignments = assignments?.courses?.[0]?.assignments || [];
+    log(`   Found ${courseAssignments.length} assignments for grade sync`);
+
+    const gradeRecords = [];
+
+    for (const assignment of courseAssignments) {
+      try {
+        // Get submission status which includes grade and feedback
+        const submissionStatus = await callMoodleApi(lmsAccount, 'mod_assign_get_submission_status', {
+          assignid: assignment.id
+        });
+
+        if (submissionStatus.lastattempt?.submission) {
+          const submission = submissionStatus.lastattempt.submission;
+          const feedbackData = submissionStatus.feedback;
+
+          // Extract feedback comments from various sources
+          const feedbackComments = [];
+
+          if (feedbackData) {
+            // Extract grade feedback
+            if (feedbackData.grade) {
+              feedbackComments.push({
+                id: `grade_${feedbackData.grade.id}`,
+                author_name: 'Teacher',
+                comment: `Grade: ${feedbackData.gradefordisplay || feedbackData.grade.grade}`,
+                created_at: feedbackData.grade.timemodified
+                  ? new Date(feedbackData.grade.timemodified * 1000).toISOString()
+                  : new Date().toISOString(),
+                format: 'text',
+                source: 'grade'
+              });
+            }
+
+            // Extract feedback from plugins
+            if (feedbackData.plugins) {
+              for (const plugin of feedbackData.plugins) {
+                if (plugin.type === 'comments' && plugin.editorfields) {
+                  for (const field of plugin.editorfields) {
+                    if (field.text) {
+                      // Strip HTML tags and clean up
+                      const cleanedComment = field.text
+                        .replace(/<[^>]+>/g, '')
+                        .replace(/&nbsp;/g, ' ')
+                        .trim();
+
+                      if (cleanedComment) {
+                        feedbackComments.push({
+                          id: `comment_${plugin.type}_${feedbackComments.length}`,
+                          author_name: 'Teacher',
+                          comment: cleanedComment,
+                          created_at: feedbackData.grade?.timemodified
+                            ? new Date(feedbackData.grade.timemodified * 1000).toISOString()
+                            : new Date().toISOString(),
+                          format: field.format || 'html',
+                          source: 'feedback_comment'
+                        });
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          gradeRecords.push({
+            lms_assignment_id: assignment.id.toString(),
+            kid_id: course.kid_id,
+            course_id: course.id,
+            lms_source: 'moodle',
+
+            // Submission info
+            submitted_at: submission.timemodified
+              ? new Date(submission.timemodified * 1000).toISOString()
+              : null,
+            submission_type: submission.plugins?.[0]?.type || 'online',
+            workflow_state: submission.status || 'unsubmitted',
+            submission_url: null, // Moodle doesn't provide direct submission URL in this API
+
+            // Grade info
+            score: feedbackData?.grade?.grade || null,
+            grade: feedbackData?.gradefordisplay || feedbackData?.grade?.grade?.toString() || null,
+            graded_at: feedbackData?.grade?.timemodified
+              ? new Date(feedbackData.grade.timemodified * 1000).toISOString()
+              : null,
+
+            // Status
+            late: false, // Moodle doesn't directly provide this
+            missing: submission.status === 'new',
+            needs_grading: submission.status === 'submitted' && !feedbackData?.grade?.grade,
+
+            // Comments and rubric from teacher
+            submission_comments: feedbackComments.length > 0 ? feedbackComments : null,
+            rubric_assessment: null, // Would need separate API call to get rubric
+
+            // LMS data
+            lms_submission_id: submission.id?.toString(),
+            lms_grade_data: {
+              moodle_user_id: submission.userid,
+              assignment_id: assignment.id,
+              submission_id: submission.id,
+              attempt_number: submission.attemptnumber || 0,
+              status: submission.status
+            },
+
+            last_sync_date: new Date().toISOString()
+          });
+        }
+      } catch (assignmentError: any) {
+        log(`   ⚠️  Error syncing grade for assignment ${assignment.id}: ${assignmentError.message}`);
+        // Continue with other assignments
+      }
+    }
+
+    log(`   📊 Prepared ${gradeRecords.length} grade records`);
+
+    if (gradeRecords.length > 0) {
+      // Bulk upsert grades
+      const { error: gradeError } = await supabase.rpc('safe_bulk_grade_upsert', {
+        grade_records: gradeRecords
+      });
+
+      if (gradeError) {
+        log(`   ⚠️  Grade sync warning: ${gradeError.message}`);
+      } else {
+        log(`   ✅ Synced ${gradeRecords.length} grades`);
+      }
+    }
+  } catch (gradeError: any) {
+    log(`   ⚠️  Grade sync failed: ${gradeError.message}`);
+    // Continue - don't fail the whole sync if grades fail
+  }
+
   // Update Last Sync Timestamp
   await supabase
     .from('courses')
