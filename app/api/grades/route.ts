@@ -51,13 +51,7 @@ export async function GET(request: Request) {
       query = query.eq('course_id', courseId);
     }
 
-    if (schoolYear) {
-      query = query.eq('courses.school_calendars.school_year_name', schoolYear);
-    }
-
-    if (courseId) {
-      query = query.eq('course_id', courseId);
-    }
+    // Note: school_year filtering happens client-side after fetch due to left joins
 
     const { data: gradesData, error: gradesError } = await query;
 
@@ -70,8 +64,23 @@ export async function GET(request: Request) {
       return NextResponse.json([]);
     }
 
+    // Filter by school year client-side if specified
+    let filteredGradesData = gradesData;
+    if (schoolYear) {
+      filteredGradesData = gradesData.filter((grade) => {
+        const courseRef = Array.isArray(grade.courses) ? grade.courses[0] : grade.courses;
+        const schoolYearName = courseRef?.school_calendars?.school_year_name ||
+                               (Array.isArray(courseRef?.school_calendars) ? courseRef.school_calendars[0]?.school_year_name : null);
+        return schoolYearName === schoolYear;
+      });
+    }
+
+    if (filteredGradesData.length === 0) {
+      return NextResponse.json([]);
+    }
+
     // Fetch activity details for each grade by lms_assignment_id
-    const lmsAssignmentIds = gradesData
+    const lmsAssignmentIds = filteredGradesData
       .map((g) => g.lms_assignment_id)
       .filter(Boolean);
 
@@ -92,7 +101,7 @@ export async function GET(request: Request) {
       }
     }
 
-    const grades = gradesData.map((grade) => {
+    const grades = filteredGradesData.map((grade) => {
       const activity = grade.lms_assignment_id
         ? activitiesMap[grade.lms_assignment_id]
         : null;
