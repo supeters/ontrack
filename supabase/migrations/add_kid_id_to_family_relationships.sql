@@ -8,21 +8,9 @@ ALTER TABLE family_relationships
 CREATE INDEX IF NOT EXISTS idx_family_relationships_kid_id
   ON family_relationships(kid_id);
 
--- Update the family_relationships RLS policy to allow access via kid_id
-DROP POLICY IF EXISTS "Family relationships access" ON family_relationships;
-
-CREATE POLICY "Family relationships access"
-  ON family_relationships
-  FOR SELECT
-  USING (
-    auth.uid() = parent_user_id
-    OR auth.uid() = child_user_id
-    OR EXISTS (
-      SELECT 1 FROM kids
-      WHERE kids.id = family_relationships.kid_id
-        AND kids.user_id = auth.uid()
-    )
-  );
+-- Note: family_relationships RLS policy remains unchanged to avoid recursion
+-- The existing policy checks parent_user_id and child_user_id only
+-- Kids without login are accessed via parent_user_id, not via kid_id check
 
 COMMENT ON COLUMN family_relationships.kid_id IS
   'Links parent to kid when kid does not have their own login account. Use either child_user_id (for kids with login) or kid_id (for kids without login), but not both.';
