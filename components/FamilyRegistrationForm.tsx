@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 interface Kid {
   name: string;
   age: number | '';
+  email?: string;
 }
 
 export default function FamilyRegistrationForm() {
@@ -90,6 +91,7 @@ export default function FamilyRegistrationForm() {
           .insert({
             name: kid.name,
             age: kid.age,
+            email: kid.email || null,
           })
           .select()
           .single();
@@ -205,6 +207,22 @@ export default function FamilyRegistrationForm() {
                         max="25"
                         required
                       />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-1">
+                        Email <span className="text-gray-400">(optional)</span>
+                      </label>
+                      <input
+                        type="email"
+                        value={kid.email || ''}
+                        onChange={(e) => updateKid(index, 'email', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                        placeholder="kid@example.com"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        If kid signs up later with this email, they'll be automatically linked
+                      </p>
                     </div>
                   </div>
 

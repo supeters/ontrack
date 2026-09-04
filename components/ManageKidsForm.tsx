@@ -7,6 +7,7 @@ interface Kid {
   id?: number;
   name: string;
   age: number | '';
+  email?: string | null;
   user_id?: string | null;
 }
 
