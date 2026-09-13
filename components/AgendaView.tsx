@@ -26,6 +26,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import ActivityDetailModal from './ActivityDetailModal';
 import CourseSetupModal from './CourseSetupModal';
 import ActivityCreateModal from './ActivityCreateModal';
+import SessionReflectionModal from './SessionReflectionModal';
 import {
   getDateStr,
   formatDateLocal,
@@ -110,6 +111,20 @@ export default function AgendaView({ kidId, selectedDate, selectedSchoolYear }: 
   const [expandedCourses, setExpandedCourses] = useState<Set<string>>(new Set());
   const [expandedActivities, setExpandedActivities] = useState<Set<number>>(new Set());
   const [activityChildren, setActivityChildren] = useState<Record<number, any[]>>({});
+
+  // Reflection modal state
+  const [reflectionModalState, setReflectionModalState] = useState<{
+    isOpen: boolean;
+    activity: any | null;
+    minutesWorked: number;
+    action: 'pause' | 'complete';
+    chunkId?: number;
+  }>({
+    isOpen: false,
+    activity: null,
+    minutesWorked: 0,
+    action: 'pause',
+  });
 
   // Pagination state for schedule items
   const [schedulePageIndex, setSchedulePageIndex] = useState(0);
@@ -343,32 +358,15 @@ export default function AgendaView({ kidId, selectedDate, selectedSchoolYear }: 
         const endTime = new Date();
         const minutesWorked = Math.max(0, Math.round((endTime.getTime() - startTime.getTime()) / 60000));
 
-        // Stop the work chunk
-        await fetch('/api/work-chunks', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chunkId: activeChunk.id,
-            updates: {
-              end_time: new Date().toISOString(),
-              is_active: false,
-              minutes_worked: minutesWorked,
-            },
-          }),
+        // Show reflection modal
+        setReflectionModalState({
+          isOpen: true,
+          activity,
+          minutesWorked,
+          action: 'pause',
+          chunkId: activeChunk.id,
         });
       }
-
-      // Clear activity start_time
-      await fetch('/api/activities', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          activityId: activity.id,
-          updates: { start_time: null },
-        }),
-      });
-
-      await loadAgendaData();
     } catch (error) {
       console.error('Error pausing work:', error);
     }
@@ -376,15 +374,12 @@ export default function AgendaView({ kidId, selectedDate, selectedSchoolYear }: 
 
   const handleCompleteWork = async (activity: any, e: React.MouseEvent) => {
     e.stopPropagation();
-    const nowTimestamp = formatTimestampLocal(new Date());
 
     try {
-      // First, stop any active work chunk
+      // First, check for any active work chunk
       const chunksRes = await fetch(`/api/work-chunks?activity_id=${activity.id}&is_active=true`);
       const chunksData = await chunksRes.json();
       const activeChunk = chunksData.chunks?.[0];
-
-      let calculatedActualMinutes = activity.actual_minutes;
 
       if (activeChunk) {
         // Calculate minutes worked
@@ -392,12 +387,113 @@ export default function AgendaView({ kidId, selectedDate, selectedSchoolYear }: 
         const endTime = new Date();
         const minutesWorked = Math.max(0, Math.round((endTime.getTime() - startTime.getTime()) / 60000));
 
-        // Stop the work chunk
+        // Show reflection modal
+        setReflectionModalState({
+          isOpen: true,
+          activity,
+          minutesWorked,
+          action: 'complete',
+          chunkId: activeChunk.id,
+        });
+      } else {
+        // No active chunk, complete immediately without reflection
+        const nowTimestamp = formatTimestampLocal(new Date());
+        await fetch('/api/activities', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            activityId: activity.id,
+            updates: {
+              is_completed: true,
+              completed_at: nowTimestamp,
+              end_time: nowTimestamp,
+              start_time: null,
+            },
+          }),
+        });
+        await loadAgendaData();
+      }
+    } catch (error) {
+      console.error('Error completing work:', error);
+    }
+  };
+
+  const handleReflectionComplete = async (reflection: { mood?: string; notes?: string }) => {
+    const { activity, minutesWorked, action, chunkId } = reflectionModalState;
+    const nowTimestamp = formatTimestampLocal(new Date());
+
+    try {
+      if (chunkId) {
+        // Update work chunk with reflection data
         await fetch('/api/work-chunks', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            chunkId: activeChunk.id,
+            chunkId,
+            updates: {
+              end_time: new Date().toISOString(),
+              is_active: false,
+              minutes_worked: minutesWorked,
+              mood: reflection.mood || null,
+              notes: reflection.notes || null,
+            },
+          }),
+        });
+      }
+
+      if (action === 'complete') {
+        // Mark activity as complete
+        await fetch('/api/activities', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            activityId: activity.id,
+            updates: {
+              is_completed: true,
+              completed_at: nowTimestamp,
+              end_time: nowTimestamp,
+              start_time: null,
+              actual_minutes: minutesWorked,
+            },
+          }),
+        });
+      } else if (action === 'pause') {
+        // Clear activity start_time (pause)
+        await fetch('/api/activities', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            activityId: activity.id,
+            updates: { start_time: null },
+          }),
+        });
+      }
+
+      // Close modal and refresh
+      setReflectionModalState({
+        isOpen: false,
+        activity: null,
+        minutesWorked: 0,
+        action: 'pause',
+      });
+      await loadAgendaData();
+    } catch (error) {
+      console.error('Error completing reflection:', error);
+    }
+  };
+
+  const handleReflectionSkip = async () => {
+    const { activity, minutesWorked, action, chunkId } = reflectionModalState;
+    const nowTimestamp = formatTimestampLocal(new Date());
+
+    try {
+      if (chunkId) {
+        // Update work chunk without reflection data
+        await fetch('/api/work-chunks', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chunkId,
             updates: {
               end_time: new Date().toISOString(),
               is_active: false,
@@ -405,28 +501,46 @@ export default function AgendaView({ kidId, selectedDate, selectedSchoolYear }: 
             },
           }),
         });
-
-        calculatedActualMinutes = minutesWorked;
       }
 
-      // Mark activity as complete
-      await fetch('/api/activities', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          activityId: activity.id,
-          updates: {
-            is_completed: true,
-            completed_at: nowTimestamp,
-            end_time: nowTimestamp,
-            start_time: null,
-            actual_minutes: calculatedActualMinutes,
-          },
-        }),
+      if (action === 'complete') {
+        // Mark activity as complete
+        await fetch('/api/activities', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            activityId: activity.id,
+            updates: {
+              is_completed: true,
+              completed_at: nowTimestamp,
+              end_time: nowTimestamp,
+              start_time: null,
+              actual_minutes: minutesWorked,
+            },
+          }),
+        });
+      } else if (action === 'pause') {
+        // Clear activity start_time (pause)
+        await fetch('/api/activities', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            activityId: activity.id,
+            updates: { start_time: null },
+          }),
+        });
+      }
+
+      // Close modal and refresh
+      setReflectionModalState({
+        isOpen: false,
+        activity: null,
+        minutesWorked: 0,
+        action: 'pause',
       });
       await loadAgendaData();
     } catch (error) {
-      console.error('Error completing work:', error);
+      console.error('Error skipping reflection:', error);
     }
   };
 
@@ -866,6 +980,15 @@ export default function AgendaView({ kidId, selectedDate, selectedSchoolYear }: 
           isOpen={isAddActivityModalOpen}
           onClose={() => setIsAddActivityModalOpen(false)}
           onSave={loadAgendaData}
+        />
+      )}
+
+      {reflectionModalState.isOpen && reflectionModalState.activity && (
+        <SessionReflectionModal
+          activityTitle={reflectionModalState.activity.title}
+          minutesWorked={reflectionModalState.minutesWorked}
+          onComplete={handleReflectionComplete}
+          onSkip={handleReflectionSkip}
         />
       )}
     </div>

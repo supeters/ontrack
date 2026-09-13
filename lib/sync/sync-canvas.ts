@@ -169,9 +169,18 @@ export async function syncCanvasCourse(params: CanvasSyncParams): Promise<void> 
 
           // Determine activity type
           let activityType;
+          let isSpecialReadingAssignment = false;
+
           if (item.type === 'SubHeader') {
-            activityType = 'workgroup';
-            currentWorkgroupLmsId = itemLmsId;
+            // Special handling for course_id 63: SubHeaders starting with "Read" are assignments
+            if (course.id === 63 && title.toLowerCase().startsWith('read')) {
+              activityType = 'assignment';
+              isSpecialReadingAssignment = true;
+              // Do NOT update currentWorkgroupLmsId - this is an assignment, not a workgroup
+            } else {
+              activityType = 'workgroup';
+              currentWorkgroupLmsId = itemLmsId;
+            }
           } else if (['Assignment', 'Discussion', 'Quiz'].includes(item.type)) {
             activityType = 'assignment';
           } else {
@@ -179,7 +188,8 @@ export async function syncCanvasCourse(params: CanvasSyncParams): Promise<void> 
           }
 
           // Determine if actionable - only first occurrence of assignment
-          let isActionable = activityType === 'assignment';
+          // Special reading assignments in course 63 are always actionable
+          let isActionable = activityType === 'assignment' && (isSpecialReadingAssignment || !item.content_id);
 
           if (isActionable && item.content_id) {
             const assignmentId = item.content_id.toString();
@@ -209,7 +219,9 @@ export async function syncCanvasCourse(params: CanvasSyncParams): Promise<void> 
             activity_type: activityType,
             kid_id: course.kid_id,
             _parent_module_lms_id: moduleLmsId,
-            _parent_workgroup_lms_id: item.type === 'SubHeader' ? null : currentWorkgroupLmsId,
+            // Special reading assignments in course 63 should be assigned to the current workgroup
+            // Regular SubHeaders (workgroups) should have null parent
+            _parent_workgroup_lms_id: isSpecialReadingAssignment ? currentWorkgroupLmsId : (item.type === 'SubHeader' ? null : currentWorkgroupLmsId),
             lms_type: item.type.toLowerCase(),
             lms_url: item.html_url || null,
             resource_url: item.external_url || null,
