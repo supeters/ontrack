@@ -176,7 +176,7 @@ export default function AnalyticsDashboard({ kidId }: AnalyticsDashboardProps) {
 
   // Calculate week-over-week data (last 4 weeks)
   const weeklyStats = (() => {
-    const weeks = [];
+    const weeks: Array<{ label: string; hours: number; weekStart: Date; weekEnd: Date }> = [];
     const now = new Date();
 
     for (let i = 0; i < 4; i++) {
