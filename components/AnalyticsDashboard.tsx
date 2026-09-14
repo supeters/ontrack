@@ -413,32 +413,31 @@ export default function AnalyticsDashboard({ kidId }: AnalyticsDashboardProps) {
           <div className="flex items-end justify-around gap-2 h-56">
             {last7DaysComparison.map((day, idx) => (
               <div key={idx} className="flex-1 flex flex-col items-center gap-2">
-                <div className="flex-1 w-full flex flex-col justify-end">
-                  <div className="w-full flex gap-1 items-end justify-center">
-                    {/* Class Hours Bar (Blue) */}
-                    <div className="flex-1 flex flex-col items-center">
-                      {day.classHours > 0 && (
-                        <div className={`text-[10px] font-semibold mb-1 text-blue-600`}>
-                          {day.classHours.toFixed(1)}
-                        </div>
-                      )}
+                <div className="flex-1 w-full flex flex-col justify-end items-center">
+                  {/* Total hours label on top */}
+                  {(day.classHours > 0 || day.workHours > 0) && (
+                    <div className={`text-[10px] font-semibold mb-1 ${c.moduleText}`}>
+                      {(day.classHours + day.workHours).toFixed(1)}h
+                    </div>
+                  )}
+                  {/* Stacked bars */}
+                  <div className="w-full flex flex-col items-center" style={{ width: '80%' }}>
+                    {/* Work Hours on top (Brown) */}
+                    {day.workHours > 0 && (
+                      <div
+                        className={`w-full ${c.checkboxChecked} transition-all min-h-[4px]`}
+                        style={{ height: `${(day.workHours / maxComparisonHours) * 180}px` }}
+                        title={`Study: ${day.workHours.toFixed(1)}h`}
+                      />
+                    )}
+                    {/* Class Hours on bottom (Blue) */}
+                    {day.classHours > 0 && (
                       <div
                         className="w-full bg-blue-500 rounded-t-lg transition-all min-h-[4px]"
                         style={{ height: `${(day.classHours / maxComparisonHours) * 180}px` }}
+                        title={`Class: ${day.classHours.toFixed(1)}h`}
                       />
-                    </div>
-                    {/* Work Hours Bar (Brown) */}
-                    <div className="flex-1 flex flex-col items-center">
-                      {day.workHours > 0 && (
-                        <div className={`text-[10px] font-semibold mb-1 ${c.moduleIcon}`}>
-                          {day.workHours.toFixed(1)}
-                        </div>
-                      )}
-                      <div
-                        className={`w-full ${c.checkboxChecked} rounded-t-lg transition-all min-h-[4px]`}
-                        style={{ height: `${(day.workHours / maxComparisonHours) * 180}px` }}
-                      />
-                    </div>
+                    )}
                   </div>
                 </div>
                 <div className={`text-[10px] ${c.mutedText} text-center font-medium`}>
