@@ -29,6 +29,15 @@ interface WorkChunk {
   course_name?: string;
 }
 
+interface ScheduledClass {
+  id: number;
+  plan_date: string;
+  start_time: string;
+  end_time: string;
+  title: string;
+  course_name?: string;
+}
+
 interface DailyStat {
   date: string;
   totalMinutes: number;
@@ -47,6 +56,7 @@ export default function AnalyticsDashboard({ kidId }: AnalyticsDashboardProps) {
   const { theme } = useTheme();
   const [timeRange, setTimeRange] = useState<'week' | 'month'>('week');
   const [workChunks, setWorkChunks] = useState<WorkChunk[]>([]);
+  const [scheduledClasses, setScheduledClasses] = useState<ScheduledClass[]>([]);
   const [loading, setLoading] = useState(true);
 
   const c = theme?.colors || {
@@ -78,6 +88,7 @@ export default function AnalyticsDashboard({ kidId }: AnalyticsDashboardProps) {
       );
       const data = await response.json();
       setWorkChunks(data.chunks || []);
+      setScheduledClasses(data.scheduledClasses || []);
     } catch (error) {
       console.error('Error loading analytics:', error);
     } finally {
@@ -162,6 +173,84 @@ export default function AnalyticsDashboard({ kidId }: AnalyticsDashboardProps) {
   const maxDailyMinutes = Math.max(...dailyStats.map((s) => s.totalMinutes), 1);
 
   const mostCommonMood = Object.entries(moodStats).sort((a, b) => b[1] - a[1])[0];
+
+  // Calculate week-over-week data (last 4 weeks)
+  const weeklyStats = (() => {
+    const weeks = [];
+    const now = new Date();
+
+    for (let i = 0; i < 4; i++) {
+      const weekEnd = new Date(now);
+      weekEnd.setDate(weekEnd.getDate() - (i * 7));
+      const weekStart = new Date(weekEnd);
+      weekStart.setDate(weekStart.getDate() - 6);
+
+      const weekChunks = workChunks.filter((chunk) => {
+        const chunkDate = new Date(chunk.created_at);
+        return chunkDate >= weekStart && chunkDate <= weekEnd;
+      });
+
+      const totalMinutes = weekChunks.reduce((sum, chunk) => sum + getChunkMinutes(chunk), 0);
+      const totalHours = totalMinutes / 60;
+
+      weeks.unshift({
+        label: `${(weekStart.getMonth() + 1)}/${weekStart.getDate()}`,
+        hours: totalHours,
+        weekStart,
+        weekEnd,
+      });
+    }
+
+    // Calculate percentage changes
+    return weeks.map((week, idx) => ({
+      ...week,
+      change: idx > 0 && weeks[idx - 1].hours > 0
+        ? ((week.hours - weeks[idx - 1].hours) / weeks[idx - 1].hours) * 100
+        : 0,
+    }));
+  })();
+
+  const maxWeeklyHours = Math.max(...weeklyStats.map((w) => w.hours), 1);
+
+  // Calculate class hours vs work hours for last 7 days
+  const last7DaysComparison = (() => {
+    const days = [];
+    const now = new Date();
+
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
+      const dateStr = formatDateLocal(date);
+
+      // Calculate work hours
+      const dayChunks = workChunks.filter((chunk) => {
+        return formatDateLocal(new Date(chunk.created_at)) === dateStr;
+      });
+      const workMinutes = dayChunks.reduce((sum, chunk) => sum + getChunkMinutes(chunk), 0);
+
+      // Calculate class hours
+      const dayClasses = scheduledClasses.filter((cls) => cls.plan_date === dateStr);
+      const classMinutes = dayClasses.reduce((sum, cls) => {
+        const start = new Date(cls.start_time);
+        const end = new Date(cls.end_time);
+        return sum + (end.getTime() - start.getTime()) / 60000;
+      }, 0);
+
+      days.push({
+        date: dateStr,
+        dayLabel: date.toLocaleDateString('en-US', { weekday: 'short' }),
+        workHours: workMinutes / 60,
+        classHours: classMinutes / 60,
+      });
+    }
+
+    return days;
+  })();
+
+  const maxComparisonHours = Math.max(
+    ...last7DaysComparison.map((d) => Math.max(d.workHours, d.classHours)),
+    1
+  );
 
   if (loading) {
     return (
@@ -250,27 +339,39 @@ export default function AnalyticsDashboard({ kidId }: AnalyticsDashboardProps) {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Daily Time Chart */}
+          {/* Week-over-Week Comparison */}
           <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-5 shadow-sm`}>
             <h3 className={`text-sm font-bold mb-4 ${c.moduleText} flex items-center gap-2`}>
-              <Calendar className={`h-4 w-4 ${c.moduleIcon}`} />
-              Daily Study Time
+              <TrendingUp className={`h-4 w-4 ${c.moduleIcon}`} />
+              Weekly Study Progress
             </h3>
-            <div className="space-y-2">
-              {dailyStats.map((stat) => (
-                <div key={stat.date} className="flex items-center gap-2">
-                  <div className={`text-xs ${c.mutedText} w-20`}>
-                    {new Date(stat.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </div>
-                  <div className="flex-1 bg-gray-100 rounded-full h-6 overflow-hidden">
-                    <div
-                      className={`h-full ${c.checkboxChecked} flex items-center justify-end pr-2 transition-all`}
-                      style={{ width: `${(stat.totalMinutes / maxDailyMinutes) * 100}%` }}
-                    >
-                      {stat.totalMinutes > 0 && (
-                        <span className="text-white text-xs font-semibold">{formatTime(stat.totalMinutes)}</span>
+            <div className="flex items-end justify-around gap-3 h-48">
+              {weeklyStats.map((week, idx) => (
+                <div key={idx} className="flex-1 flex flex-col items-center gap-2">
+                  <div className="flex-1 w-full flex flex-col justify-end">
+                    <div className="relative w-full flex flex-col items-center">
+                      {week.hours > 0 && (
+                        <div className={`text-xs font-semibold mb-1 ${c.moduleText}`}>
+                          {week.hours.toFixed(1)}h
+                        </div>
                       )}
+                      {idx > 0 && week.change !== 0 && (
+                        <div
+                          className={`text-[10px] font-bold mb-1 ${
+                            week.change > 0 ? 'text-green-600' : 'text-red-600'
+                          }`}
+                        >
+                          {week.change > 0 ? '+' : ''}{week.change.toFixed(0)}%
+                        </div>
+                      )}
+                      <div
+                        className={`w-full ${c.checkboxChecked} rounded-t-lg transition-all min-h-[4px]`}
+                        style={{ height: `${(week.hours / maxWeeklyHours) * 140}px` }}
+                      />
                     </div>
+                  </div>
+                  <div className={`text-[10px] ${c.mutedText} text-center whitespace-nowrap`}>
+                    {week.label}
                   </div>
                 </div>
               ))}
@@ -299,6 +400,61 @@ export default function AnalyticsDashboard({ kidId }: AnalyticsDashboardProps) {
                   <div className={`text-[10px] ${c.mutedText} mt-0.5`}>{stat.chunks} sessions</div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Class Hours vs Work Hours Comparison */}
+        <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-5 shadow-sm`}>
+          <h3 className={`text-sm font-bold mb-4 ${c.moduleText} flex items-center gap-2`}>
+            <BarChart3 className={`h-4 w-4 ${c.moduleIcon}`} />
+            Class Hours vs Study Hours (Last 7 Days)
+          </h3>
+          <div className="flex items-end justify-around gap-2 h-56">
+            {last7DaysComparison.map((day, idx) => (
+              <div key={idx} className="flex-1 flex flex-col items-center gap-2">
+                <div className="flex-1 w-full flex flex-col justify-end">
+                  <div className="w-full flex gap-1 items-end justify-center">
+                    {/* Class Hours Bar (Blue) */}
+                    <div className="flex-1 flex flex-col items-center">
+                      {day.classHours > 0 && (
+                        <div className={`text-[10px] font-semibold mb-1 text-blue-600`}>
+                          {day.classHours.toFixed(1)}
+                        </div>
+                      )}
+                      <div
+                        className="w-full bg-blue-500 rounded-t-lg transition-all min-h-[4px]"
+                        style={{ height: `${(day.classHours / maxComparisonHours) * 180}px` }}
+                      />
+                    </div>
+                    {/* Work Hours Bar (Brown) */}
+                    <div className="flex-1 flex flex-col items-center">
+                      {day.workHours > 0 && (
+                        <div className={`text-[10px] font-semibold mb-1 ${c.moduleIcon}`}>
+                          {day.workHours.toFixed(1)}
+                        </div>
+                      )}
+                      <div
+                        className={`w-full ${c.checkboxChecked} rounded-t-lg transition-all min-h-[4px]`}
+                        style={{ height: `${(day.workHours / maxComparisonHours) * 180}px` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className={`text-[10px] ${c.mutedText} text-center font-medium`}>
+                  {day.dayLabel}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-center gap-6 mt-4 pt-3 border-t border-gray-200">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-blue-500 rounded"></div>
+              <span className={`text-xs ${c.mutedText}`}>Class Hours</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className={`w-3 h-3 ${c.checkboxChecked} rounded`}></div>
+              <span className={`text-xs ${c.mutedText}`}>Study Hours</span>
             </div>
           </div>
         </div>

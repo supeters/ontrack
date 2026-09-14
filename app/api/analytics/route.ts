@@ -77,7 +77,55 @@ export async function GET(request: NextRequest) {
       course_name: chunk.activities?.courses?.course_name,
     }));
 
-    return NextResponse.json({ chunks });
+    // Fetch scheduled classes for the same date range
+    let classesQuery = supabase
+      .from('activities')
+      .select(`
+        id,
+        kid_id,
+        plan_date,
+        start_time,
+        end_time,
+        title,
+        course_id,
+        courses (
+          id,
+          course_name
+        )
+      `)
+      .eq('kid_id', parseInt(kidId))
+      .not('start_time', 'is', null)
+      .not('end_time', 'is', null)
+      .eq('is_deleted', false)
+      .eq('is_hidden', false)
+      .order('plan_date', { ascending: false });
+
+    if (startDate) {
+      classesQuery = classesQuery.gte('plan_date', startDate);
+    }
+
+    if (endDate) {
+      classesQuery = classesQuery.lte('plan_date', endDate);
+    }
+
+    const { data: classesData, error: classesError } = await classesQuery;
+
+    if (classesError) {
+      console.error('Error fetching scheduled classes:', classesError);
+      // Don't fail the whole request, just return empty classes
+    }
+
+    // Transform scheduled classes data
+    const scheduledClasses = (classesData || []).map((cls: any) => ({
+      id: cls.id,
+      plan_date: cls.plan_date,
+      start_time: cls.start_time,
+      end_time: cls.end_time,
+      title: cls.title,
+      course_name: cls.courses?.course_name,
+    }));
+
+    return NextResponse.json({ chunks, scheduledClasses });
   } catch (error: any) {
     console.error('API /api/analytics GET error:', error);
     return NextResponse.json(

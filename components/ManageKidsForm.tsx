@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { getClientBrowserClient } from '@/lib/supabase/client';
 
 interface Kid {
   id?: number;
@@ -12,7 +12,7 @@ interface Kid {
 }
 
 export default function ManageKidsForm() {
-  const supabase = createClientComponentClient();
+  const supabase = getClientBrowserClient();
 
   const [kids, setKids] = useState<Kid[]>([]);
   const [newKid, setNewKid] = useState<Kid>({ name: '', age: '' });

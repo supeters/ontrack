@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { getClientBrowserClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 
 interface Kid {
@@ -12,7 +12,7 @@ interface Kid {
 
 export default function FamilyRegistrationForm() {
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  const supabase = getClientBrowserClient();
 
   const [parentEmail, setParentEmail] = useState('');
   const [parentPassword, setParentPassword] = useState('');
