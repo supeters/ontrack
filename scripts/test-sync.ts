@@ -46,10 +46,10 @@ async function testSync(options: SyncOptions) {
 
     // Run the sync
     await syncCourses({
-      courseIds: courseIds.length > 0 ? courseIds : undefined,
-      kidId,
-      schoolYear: options.schoolYear,
-      calculateDates: options.calculateDates !== false,
+      course_ids: courseIds.length > 0 ? courseIds : undefined,
+      kid_id: kidId,
+      school_year: options.schoolYear,
+      calculate_dates: options.calculateDates !== false,
       onProgress: (message) => {
         console.log(message);
       },

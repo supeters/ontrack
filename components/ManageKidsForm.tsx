@@ -215,7 +215,7 @@ export default function ManageKidsForm() {
                       value={kid.age}
                       onChange={(e) => {
                         const updated = kids.map(k =>
-                          k.id === kid.id ? { ...k, age: parseInt(e.target.value) || '' } : k
+                          k.id === kid.id ? { ...k, age: (parseInt(e.target.value) || '') as number | '' } : k
                         );
                         setKids(updated);
                       }}

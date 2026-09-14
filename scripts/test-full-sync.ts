@@ -78,10 +78,10 @@ async function testFullSync(options: TestOptions) {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
     await syncCourses({
-      courseIds: courseIds.length > 0 ? courseIds : undefined,
-      kidId,
-      schoolYear: options.schoolYear,
-      calculateDates: true, // Include plan date calculation
+      course_ids: courseIds.length > 0 ? courseIds : undefined,
+      kid_id: kidId,
+      school_year: options.schoolYear,
+      calculate_dates: true, // Include plan date calculation
       onProgress: (message) => {
         console.log(message);
       },
