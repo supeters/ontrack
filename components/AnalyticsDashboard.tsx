@@ -58,6 +58,7 @@ export default function AnalyticsDashboard({ kidId }: AnalyticsDashboardProps) {
   const [workChunks, setWorkChunks] = useState<WorkChunk[]>([]);
   const [scheduledClasses, setScheduledClasses] = useState<ScheduledClass[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedCourse, setSelectedCourse] = useState<string | null>(null);
 
   const c = theme?.colors || {
     bg: 'bg-[#f4efe6]',
@@ -458,6 +459,42 @@ export default function AnalyticsDashboard({ kidId }: AnalyticsDashboardProps) {
           </div>
         </div>
 
+        {/* Study Hours by Course */}
+        <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-5 shadow-sm`}>
+          <h3 className={`text-sm font-bold mb-4 ${c.moduleText} flex items-center gap-2`}>
+            <BookOpen className={`h-4 w-4 ${c.moduleIcon}`} />
+            Study Hours by Course
+          </h3>
+          <div className="space-y-3">
+            {courseStats.slice(0, 8).map((course, idx) => {
+              const hours = course.totalMinutes / 60;
+              const maxHours = courseStats[0]?.totalMinutes / 60 || 1;
+              return (
+                <div
+                  key={idx}
+                  className="cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors"
+                  onClick={() => setSelectedCourse(course.courseName)}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className={`text-xs font-medium ${c.moduleText} truncate flex-1`}>
+                      {course.courseName}
+                    </span>
+                    <span className={`text-xs font-bold ${c.moduleIcon} ml-2`}>
+                      {hours.toFixed(1)}h
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className={`${c.checkboxChecked} h-2 rounded-full transition-all`}
+                      style={{ width: `${(hours / maxHours) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Mood Distribution */}
         <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-5 shadow-sm`}>
           <h3 className={`text-sm font-bold mb-4 ${c.moduleText} flex items-center gap-2`}>
@@ -483,6 +520,116 @@ export default function AnalyticsDashboard({ kidId }: AnalyticsDashboardProps) {
           </div>
         </div>
       </div>
+
+      {/* Course History Modal */}
+      {selectedCourse && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={() => setSelectedCourse(null)}
+        >
+          <div
+            className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h2 className={`text-lg font-bold ${c.moduleText}`}>
+                {selectedCourse} - Study History
+              </h2>
+              <button
+                onClick={() => setSelectedCourse(null)}
+                className={`text-xl ${c.mutedText} hover:${c.moduleText}`}
+              >
+                ×
+              </button>
+            </div>
+
+            {(() => {
+              // Get all work chunks for this course
+              const courseChunks = workChunks.filter(
+                (chunk) => chunk.course_name === selectedCourse
+              );
+
+              // Group by week for last 8 weeks
+              const weeklyData = [];
+              const now = new Date();
+              for (let i = 0; i < 8; i++) {
+                const weekEnd = new Date(now);
+                weekEnd.setDate(weekEnd.getDate() - i * 7);
+                const weekStart = new Date(weekEnd);
+                weekStart.setDate(weekStart.getDate() - 6);
+
+                const weekChunks = courseChunks.filter((chunk) => {
+                  const chunkDate = new Date(chunk.created_at);
+                  return chunkDate >= weekStart && chunkDate <= weekEnd;
+                });
+
+                const totalMinutes = weekChunks.reduce(
+                  (sum, chunk) => sum + getChunkMinutes(chunk),
+                  0
+                );
+
+                weeklyData.unshift({
+                  label: `${weekStart.getMonth() + 1}/${weekStart.getDate()}`,
+                  hours: totalMinutes / 60,
+                  sessions: weekChunks.length,
+                });
+              }
+
+              const maxWeekHours = Math.max(...weeklyData.map((w) => w.hours), 1);
+
+              return (
+                <div>
+                  <div className="flex items-end justify-around gap-2 h-64 mb-6">
+                    {weeklyData.map((week, idx) => (
+                      <div key={idx} className="flex-1 flex flex-col items-center gap-2">
+                        <div className="flex-1 w-full flex flex-col justify-end items-center">
+                          {week.hours > 0 && (
+                            <div className={`text-xs font-semibold mb-1 ${c.moduleText}`}>
+                              {week.hours.toFixed(1)}h
+                            </div>
+                          )}
+                          <div
+                            className={`w-full ${c.checkboxChecked} rounded-t-lg transition-all min-h-[4px]`}
+                            style={{ width: '80%', height: `${(week.hours / maxWeekHours) * 200}px` }}
+                          />
+                        </div>
+                        <div className={`text-[10px] ${c.mutedText} text-center`}>
+                          {week.label}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4 mb-4">
+                    <div className={`${c.moduleHeader} rounded-lg p-3 text-center`}>
+                      <div className={`text-xs ${c.mutedText} mb-1`}>Total Hours</div>
+                      <div className={`text-xl font-bold ${c.moduleText}`}>
+                        {(courseChunks.reduce((sum, c) => sum + getChunkMinutes(c), 0) / 60).toFixed(1)}
+                      </div>
+                    </div>
+                    <div className={`${c.moduleHeader} rounded-lg p-3 text-center`}>
+                      <div className={`text-xs ${c.mutedText} mb-1`}>Study Sessions</div>
+                      <div className={`text-xl font-bold ${c.moduleText}`}>{courseChunks.length}</div>
+                    </div>
+                    <div className={`${c.moduleHeader} rounded-lg p-3 text-center`}>
+                      <div className={`text-xs ${c.mutedText} mb-1`}>Avg Session</div>
+                      <div className={`text-xl font-bold ${c.moduleText}`}>
+                        {courseChunks.length > 0
+                          ? Math.round(
+                              courseChunks.reduce((sum, c) => sum + getChunkMinutes(c), 0) /
+                                courseChunks.length
+                            )
+                          : 0}
+                        m
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
