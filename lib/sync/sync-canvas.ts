@@ -189,14 +189,14 @@ export async function syncCanvasCourse(params: CanvasSyncParams): Promise<void> 
 
           // Determine if actionable - only first occurrence of assignment
           // Special reading assignments in course 63 are always actionable
-          let isActionable = activityType === 'assignment' && (isSpecialReadingAssignment || !item.content_id);
+          let isActionable = activityType === 'assignment';
 
-          if (isActionable && item.content_id) {
+          if (isActionable && item.content_id && !isSpecialReadingAssignment) {
             const assignmentId = item.content_id.toString();
             const isFirstOccurrence = !seenAssignments.has(assignmentId);
             seenAssignments.add(assignmentId);
 
-            // Only first occurrence is actionable
+            // Only first occurrence is actionable (unless it's a special reading assignment)
             isActionable = isFirstOccurrence;
           }
 
