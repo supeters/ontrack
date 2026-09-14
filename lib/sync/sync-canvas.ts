@@ -127,8 +127,14 @@ export async function syncCanvasCourse(params: CanvasSyncParams): Promise<void> 
   const workgroupSyncRecords = [];
   const assignmentSyncRecords = [];
 
-  // Track which assignments we've seen (to identify first occurrence)
-  const seenAssignments = new Set<string>();
+  // Track all assignment occurrences with their context (for priority-based duplicate detection)
+  const assignmentOccurrences = new Map<string, Array<{
+    itemLmsId: string;
+    workgroupTitle: string | null;
+    moduleTitle: string;
+    position: number;
+    isSpecialReading: boolean;
+  }>>();
   // Track all lms_id values we sync (for deletion detection)
   const syncedLmsIds = new Set<string>();
 
@@ -162,6 +168,7 @@ export async function syncCanvasCourse(params: CanvasSyncParams): Promise<void> 
       // Prepare item sync records - separate workgroups from assignments
       if (module.items && module.items.length > 0) {
         let currentWorkgroupLmsId = null;
+        let currentWorkgroupTitle: string | null = null;
 
         for (const item of module.items) {
           const itemLmsId = `canvas_item_${item.id}`;
@@ -180,6 +187,7 @@ export async function syncCanvasCourse(params: CanvasSyncParams): Promise<void> 
             } else {
               activityType = 'workgroup';
               currentWorkgroupLmsId = itemLmsId;
+              currentWorkgroupTitle = title;
             }
           } else if (['Assignment', 'Discussion', 'Quiz'].includes(item.type)) {
             activityType = 'assignment';
@@ -187,17 +195,27 @@ export async function syncCanvasCourse(params: CanvasSyncParams): Promise<void> 
             activityType = 'resource';
           }
 
-          // Determine if actionable - only first occurrence of assignment
-          // Special reading assignments in course 63 are always actionable
+          // Track assignment occurrences for priority-based duplicate detection
+          // We'll determine which occurrence is actionable after collecting all of them
           let isActionable = activityType === 'assignment';
 
-          if (isActionable && item.content_id && !isSpecialReadingAssignment) {
+          if (isActionable && item.content_id) {
             const assignmentId = item.content_id.toString();
-            const isFirstOccurrence = !seenAssignments.has(assignmentId);
-            seenAssignments.add(assignmentId);
 
-            // Only first occurrence is actionable (unless it's a special reading assignment)
-            isActionable = isFirstOccurrence;
+            if (!assignmentOccurrences.has(assignmentId)) {
+              assignmentOccurrences.set(assignmentId, []);
+            }
+
+            assignmentOccurrences.get(assignmentId)!.push({
+              itemLmsId,
+              workgroupTitle: currentWorkgroupTitle,
+              moduleTitle: module.name || `Module ${module.position}`,
+              position: item.position || 0,
+              isSpecialReading: isSpecialReadingAssignment,
+            });
+
+            // Temporarily mark all as actionable - we'll adjust this after processing all items
+            isActionable = true;
           }
 
           // Check exclusion patterns
@@ -248,6 +266,13 @@ export async function syncCanvasCourse(params: CanvasSyncParams): Promise<void> 
   }
 
   log(`   📊 Prepared ${moduleSyncRecords.length} modules, ${workgroupSyncRecords.length} workgroups, ${assignmentSyncRecords.length} assignments`);
+
+  // Apply priority-based duplicate resolution
+  log(`🔍 Resolving duplicate assignments using workgroup priority...`);
+  const duplicateCount = resolveDuplicateAssignments(assignmentOccurrences, assignmentSyncRecords);
+  if (duplicateCount > 0) {
+    log(`   ✅ Resolved ${duplicateCount} duplicate assignments`);
+  }
 
   // Step 1: Bulk sync modules first
   log(`💾 Step 1: Syncing ${moduleSyncRecords.length} modules...`);
@@ -471,4 +496,82 @@ export async function syncCanvasCourse(params: CanvasSyncParams): Promise<void> 
     .eq('id', courseId);
 
   log(`✅ Canvas sync completed!`);
+}
+
+/**
+ * Resolve duplicate assignments using workgroup priority
+ * Returns the number of duplicates resolved
+ */
+function resolveDuplicateAssignments(
+  assignmentOccurrences: Map<string, Array<{
+    itemLmsId: string;
+    workgroupTitle: string | null;
+    moduleTitle: string;
+    position: number;
+    isSpecialReading: boolean;
+  }>>,
+  assignmentSyncRecords: any[]
+): number {
+  let duplicatesResolved = 0;
+
+  // Workgroup priority ranking (higher = better priority)
+  const getWorkgroupPriority = (workgroupTitle: string | null): number => {
+    if (!workgroupTitle) return 50; // No workgroup = medium priority (module-level assignment)
+
+    const titleLower = workgroupTitle.toLowerCase();
+
+    // Highest priority: actual work sections
+    if (titleLower.includes('due day 1')) return 100;
+    if (titleLower.includes('due day 2')) return 95;
+    if (titleLower.startsWith('due ')) return 90;
+    if (titleLower.includes('end of') && titleLower.includes('week')) return 85;
+    if (titleLower.includes('end of') && titleLower.includes('work')) return 85;
+
+    // Low priority: preview/reference sections
+    if (titleLower.includes('looking ahead')) return 10;
+    if (titleLower.includes('look ahead')) return 10;
+    if (titleLower.includes('helpful resource')) return 5;
+    if (titleLower.includes('resources')) return 5;
+
+    // Medium priority: everything else
+    return 50;
+  };
+
+  // Process each assignment that has duplicates
+  for (const [assignmentId, occurrences] of Array.from(assignmentOccurrences.entries())) {
+    if (occurrences.length <= 1) continue; // Not a duplicate
+
+    duplicatesResolved++;
+
+    // Special reading assignments (course 63) are always actionable - skip priority logic
+    if (occurrences.some(occ => occ.isSpecialReading)) {
+      continue;
+    }
+
+    // Find the highest-priority occurrence
+    let bestOccurrence = occurrences[0];
+    let bestPriority = getWorkgroupPriority(bestOccurrence.workgroupTitle);
+
+    for (const occurrence of occurrences) {
+      const priority = getWorkgroupPriority(occurrence.workgroupTitle);
+
+      if (priority > bestPriority) {
+        bestOccurrence = occurrence;
+        bestPriority = priority;
+      } else if (priority === bestPriority && occurrence.position < bestOccurrence.position) {
+        // Same priority, prefer earlier position
+        bestOccurrence = occurrence;
+      }
+    }
+
+    // Mark only the best occurrence as actionable
+    for (const record of assignmentSyncRecords) {
+      if (occurrences.some(occ => occ.itemLmsId === record.lms_id)) {
+        // This is one of the duplicate occurrences
+        record.is_action_sync = (record.lms_id === bestOccurrence.itemLmsId);
+      }
+    }
+  }
+
+  return duplicatesResolved;
 }
