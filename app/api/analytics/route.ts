@@ -77,53 +77,32 @@ export async function GET(request: NextRequest) {
       course_name: chunk.activities?.courses?.course_name,
     }));
 
-    // Fetch scheduled classes for the same date range
-    let classesQuery = supabase
-      .from('activities')
-      .select(`
-        id,
-        kid_id,
-        plan_date,
-        start_time,
-        end_time,
-        title,
-        course_id,
-        courses (
-          id,
-          course_name
-        )
-      `)
-      .eq('kid_id', parseInt(kidId))
-      .not('start_time', 'is', null)
-      .not('end_time', 'is', null)
-      .eq('is_deleted', false)
-      .eq('is_hidden', false)
-      .order('plan_date', { ascending: false });
+    // Fetch scheduled classes from Google Calendar
+    let scheduledClasses: any[] = [];
 
-    if (startDate) {
-      classesQuery = classesQuery.gte('plan_date', startDate);
-    }
+    try {
+      // Build the URL for the Google Calendar events API
+      const calendarUrl = new URL(`${request.url.split('/api/analytics')[0]}/api/calendars/google/events`);
+      calendarUrl.searchParams.set('kidId', kidId);
+      calendarUrl.searchParams.set('startDate', startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+      calendarUrl.searchParams.set('endDate', endDate || new Date().toISOString().split('T')[0]);
 
-    if (endDate) {
-      classesQuery = classesQuery.lte('plan_date', endDate);
-    }
+      const calendarResponse = await fetch(calendarUrl.toString());
 
-    const { data: classesData, error: classesError } = await classesQuery;
-
-    if (classesError) {
-      console.error('Error fetching scheduled classes:', classesError);
+      if (calendarResponse.ok) {
+        const calendarData = await calendarResponse.json();
+        scheduledClasses = (calendarData.events || []).map((event: any) => ({
+          id: event.id,
+          plan_date: event.plan_date,
+          start_time: event.start_time,
+          end_time: event.end_time,
+          title: event.title,
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching Google Calendar events:', error);
       // Don't fail the whole request, just return empty classes
     }
-
-    // Transform scheduled classes data
-    const scheduledClasses = (classesData || []).map((cls: any) => ({
-      id: cls.id,
-      plan_date: cls.plan_date,
-      start_time: cls.start_time,
-      end_time: cls.end_time,
-      title: cls.title,
-      course_name: cls.courses?.course_name,
-    }));
 
     return NextResponse.json({ chunks, scheduledClasses });
   } catch (error: any) {
