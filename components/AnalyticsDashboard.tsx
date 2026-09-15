@@ -2,14 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
-import {
-  Clock,
-  TrendingUp,
-  Calendar,
-  BookOpen,
-  BarChart3,
-  Activity,
-} from 'lucide-react';
+import { Clock, BookOpen, Calendar, GraduationCap, TrendingUp, X } from 'lucide-react';
 import { formatDateLocal } from '@/lib/datetime';
 
 interface AnalyticsDashboardProps {
@@ -38,27 +31,17 @@ interface ScheduledClass {
   course_name?: string;
 }
 
-interface DailyStat {
-  date: string;
-  totalMinutes: number;
-  completedTasks: number;
-  chunks: number;
-}
-
-interface CourseStat {
-  courseName: string;
-  totalMinutes: number;
-  chunks: number;
-  avgMood: string | null;
-}
+type TimeRange = 'today' | '7days' | 'month' | 'all';
 
 export default function AnalyticsDashboard({ kidId }: AnalyticsDashboardProps) {
   const { theme } = useTheme();
-  const [timeRange, setTimeRange] = useState<'week' | 'month'>('week');
+  const [timeRange, setTimeRange] = useState<TimeRange>('7days');
   const [workChunks, setWorkChunks] = useState<WorkChunk[]>([]);
   const [scheduledClasses, setScheduledClasses] = useState<ScheduledClass[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCourse, setSelectedCourse] = useState<string | null>(null);
+  const [chunkFilterCourse, setChunkFilterCourse] = useState<string | null>(null);
+  const [chunkFilterMood, setChunkFilterMood] = useState<string | null>(null);
 
   const c = theme?.colors || {
     bg: 'bg-[#f4efe6]',
@@ -77,15 +60,34 @@ export default function AnalyticsDashboard({ kidId }: AnalyticsDashboardProps) {
     loadAnalytics();
   }, [kidId, timeRange]);
 
+  const getDateRange = () => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    switch (timeRange) {
+      case 'today':
+        return { start: today, end: now };
+      case '7days':
+        const week = new Date(today);
+        week.setDate(week.getDate() - 6);
+        return { start: week, end: now };
+      case 'month':
+        const month = new Date(today);
+        month.setDate(month.getDate() - 29);
+        return { start: month, end: now };
+      case 'all':
+        return { start: new Date(2020, 0, 1), end: now };
+    }
+  };
+
   const loadAnalytics = async () => {
     setLoading(true);
     try {
-      const daysBack = timeRange === 'week' ? 7 : 30;
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - daysBack);
-
+      const { start, end } = getDateRange();
+      const startStr = formatDateLocal(start);
+      const endStr = formatDateLocal(end);
       const response = await fetch(
-        `/api/analytics?kidId=${kidId}&startDate=${formatDateLocal(startDate)}&endDate=${formatDateLocal(new Date())}`
+        `/api/analytics?kidId=${kidId}&startDate=${startStr}&endDate=${endStr}`
       );
       const data = await response.json();
       setWorkChunks(data.chunks || []);
@@ -114,522 +116,423 @@ export default function AnalyticsDashboard({ kidId }: AnalyticsDashboardProps) {
     return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
   };
 
-  // Calculate daily stats
-  const dailyStats: DailyStat[] = (() => {
-    const stats = new Map<string, DailyStat>();
-    const daysBack = timeRange === 'week' ? 7 : 30;
+  // Filter chunks by selected course if applicable
+  const filteredChunks = selectedCourse
+    ? workChunks.filter(c => c.course_name === selectedCourse)
+    : workChunks;
 
-    // Initialize all dates
-    for (let i = 0; i < daysBack; i++) {
-      const date = new Date();
-      date.setDate(date.getDate() - (daysBack - 1 - i));
-      const dateKey = formatDateLocal(date);
-      stats.set(dateKey, { date: dateKey, totalMinutes: 0, completedTasks: 0, chunks: 0 });
+  const studyByCourse = (() => {
+    const courses = new Map<string, number>();
+    workChunks.forEach((chunk) => {
+      const course = chunk.course_name || 'General';
+      courses.set(course, (courses.get(course) || 0) + getChunkMinutes(chunk));
+    });
+    return Array.from(courses.entries())
+      .map(([name, minutes]) => ({ name, hours: minutes / 60 }))
+      .sort((a, b) => b.hours - a.hours);
+  })();
+
+  const classByCourse = (() => {
+    const courses = new Map<string, number>();
+    scheduledClasses.forEach((cls) => {
+      const course = cls.course_name || 'General';
+      const start = new Date(cls.start_time);
+      const end = new Date(cls.end_time);
+      const minutes = (end.getTime() - start.getTime()) / 60000;
+      courses.set(course, (courses.get(course) || 0) + minutes);
+    });
+    return Array.from(courses.entries())
+      .map(([name, minutes]) => ({ name, hours: minutes / 60 }))
+      .sort((a, b) => b.hours - a.hours);
+  })();
+
+  // Rolling chart data (daily or weekly based on time range)
+  const rollingData = (() => {
+    const useWeekly = timeRange === 'month' || timeRange === 'all';
+
+    if (useWeekly) {
+      // Weekly rolling data
+      const weeks: Array<{ label: string; hours: number; weekStart: Date }> = [];
+      const now = new Date();
+      const numWeeks = timeRange === 'all' ? 12 : 4;
+
+      for (let i = numWeeks - 1; i >= 0; i--) {
+        const weekEnd = new Date(now);
+        weekEnd.setDate(weekEnd.getDate() - (i * 7));
+        const weekStart = new Date(weekEnd);
+        weekStart.setDate(weekStart.getDate() - 6);
+
+        const weekChunks = filteredChunks.filter((chunk) => {
+          const chunkDate = new Date(chunk.created_at);
+          return chunkDate >= weekStart && chunkDate <= weekEnd;
+        });
+
+        const totalMinutes = weekChunks.reduce((sum, chunk) => sum + getChunkMinutes(chunk), 0);
+
+        weeks.push({
+          label: `${weekStart.getMonth() + 1}/${weekStart.getDate()}`,
+          hours: totalMinutes / 60,
+          weekStart,
+        });
+      }
+
+      return weeks;
+    } else {
+      // Daily rolling data
+      const { start } = getDateRange();
+      const days: Array<{ label: string; hours: number; date: Date }> = [];
+      const current = new Date(start);
+      const end = new Date();
+
+      while (current <= end) {
+        const dateStr = formatDateLocal(current);
+        const dayChunks = filteredChunks.filter((chunk) => {
+          return formatDateLocal(new Date(chunk.created_at)) === dateStr;
+        });
+
+        const totalMinutes = dayChunks.reduce((sum, chunk) => sum + getChunkMinutes(chunk), 0);
+
+        days.push({
+          label: timeRange === 'today' ? 'Today' : current.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          hours: totalMinutes / 60,
+          date: new Date(current),
+        });
+
+        current.setDate(current.getDate() + 1);
+      }
+
+      return days;
     }
-
-    // Fill in data from chunks
-    workChunks.forEach((chunk) => {
-      const dateKey = formatDateLocal(new Date(chunk.created_at));
-      const stat = stats.get(dateKey);
-      if (stat) {
-        stat.totalMinutes += getChunkMinutes(chunk);
-        stat.chunks += 1;
-      }
-    });
-
-    return Array.from(stats.values());
   })();
 
-  // Calculate course stats
-  const courseStats: CourseStat[] = (() => {
-    const stats = new Map<string, CourseStat>();
-
-    workChunks.forEach((chunk) => {
-      const courseName = chunk.course_name || 'General';
-      if (!stats.has(courseName)) {
-        stats.set(courseName, { courseName, totalMinutes: 0, chunks: 0, avgMood: null });
-      }
-      const stat = stats.get(courseName)!;
-      stat.totalMinutes += getChunkMinutes(chunk);
-      stat.chunks += 1;
-    });
-
-    return Array.from(stats.values()).sort((a, b) => b.totalMinutes - a.totalMinutes);
-  })();
-
-  // Calculate mood distribution
-  const moodStats = (() => {
-    const moods = { struggled: 0, okay: 0, good: 0, great: 0, focused: 0 };
-    workChunks.forEach((chunk) => {
-      if (chunk.mood && chunk.mood in moods) {
-        moods[chunk.mood as keyof typeof moods]++;
-      }
-    });
-    return moods;
-  })();
-
-  const totalMinutes = workChunks.reduce((sum, chunk) => sum + getChunkMinutes(chunk), 0);
-  const totalChunks = workChunks.length;
-  const avgSessionLength = totalChunks > 0 ? Math.round(totalMinutes / totalChunks) : 0;
-  const maxDailyMinutes = Math.max(...dailyStats.map((s) => s.totalMinutes), 1);
-
-  const mostCommonMood = Object.entries(moodStats).sort((a, b) => b[1] - a[1])[0];
-
-  // Calculate week-over-week data (last 4 weeks)
-  const weeklyStats = (() => {
-    const weeks: Array<{ label: string; hours: number; weekStart: Date; weekEnd: Date }> = [];
-    const now = new Date();
-
-    for (let i = 0; i < 4; i++) {
-      const weekEnd = new Date(now);
-      weekEnd.setDate(weekEnd.getDate() - (i * 7));
-      const weekStart = new Date(weekEnd);
-      weekStart.setDate(weekStart.getDate() - 6);
-
-      const weekChunks = workChunks.filter((chunk) => {
-        const chunkDate = new Date(chunk.created_at);
-        return chunkDate >= weekStart && chunkDate <= weekEnd;
-      });
-
-      const totalMinutes = weekChunks.reduce((sum, chunk) => sum + getChunkMinutes(chunk), 0);
-      const totalHours = totalMinutes / 60;
-
-      weeks.unshift({
-        label: `${(weekStart.getMonth() + 1)}/${weekStart.getDate()}`,
-        hours: totalHours,
-        weekStart,
-        weekEnd,
-      });
+  const dailyBreakdown = (() => {
+    const { start } = getDateRange();
+    const days = new Map<string, { date: string; studyHours: number; classHours: number }>();
+    const current = new Date(start);
+    const end = new Date();
+    while (current <= end) {
+      const dateStr = formatDateLocal(current);
+      days.set(dateStr, { date: dateStr, studyHours: 0, classHours: 0 });
+      current.setDate(current.getDate() + 1);
     }
-
-    // Calculate percentage changes
-    return weeks.map((week, idx) => ({
-      ...week,
-      change: idx > 0 && weeks[idx - 1].hours > 0
-        ? ((week.hours - weeks[idx - 1].hours) / weeks[idx - 1].hours) * 100
-        : 0,
-    }));
-  })();
-
-  const maxWeeklyHours = Math.max(...weeklyStats.map((w) => w.hours), 1);
-
-  // Calculate class hours vs work hours for last 7 days
-  const last7DaysComparison = (() => {
-    const days = [];
-    const now = new Date();
-
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(now);
-      date.setDate(date.getDate() - i);
-      const dateStr = formatDateLocal(date);
-
-      // Calculate work hours
-      const dayChunks = workChunks.filter((chunk) => {
-        return formatDateLocal(new Date(chunk.created_at)) === dateStr;
-      });
-      const workMinutes = dayChunks.reduce((sum, chunk) => sum + getChunkMinutes(chunk), 0);
-
-      // Calculate class hours
-      const dayClasses = scheduledClasses.filter((cls) => cls.plan_date === dateStr);
-      const classMinutes = dayClasses.reduce((sum, cls) => {
+    workChunks.forEach((chunk) => {
+      const dateStr = formatDateLocal(new Date(chunk.created_at));
+      const day = days.get(dateStr);
+      if (day) day.studyHours += getChunkMinutes(chunk) / 60;
+    });
+    scheduledClasses.forEach((cls) => {
+      const day = days.get(cls.plan_date);
+      if (day) {
         const start = new Date(cls.start_time);
         const end = new Date(cls.end_time);
-        return sum + (end.getTime() - start.getTime()) / 60000;
-      }, 0);
-
-      days.push({
-        date: dateStr,
-        dayLabel: date.toLocaleDateString('en-US', { weekday: 'short' }),
-        workHours: workMinutes / 60,
-        classHours: classMinutes / 60,
-      });
-    }
-
-    return days;
+        day.classHours += (end.getTime() - start.getTime()) / 60000 / 60;
+      }
+    });
+    return Array.from(days.values());
   })();
 
-  const maxComparisonHours = Math.max(
-    ...last7DaysComparison.map((d) => Math.max(d.workHours, d.classHours)),
-    1
-  );
+  const totalStudyMinutes = workChunks.reduce((sum, chunk) => sum + getChunkMinutes(chunk), 0);
+  const totalClassMinutes = scheduledClasses.reduce((sum, cls) => {
+    const start = new Date(cls.start_time);
+    const end = new Date(cls.end_time);
+    return sum + (end.getTime() - start.getTime()) / 60000;
+  }, 0);
+
+  const maxStudyHours = Math.max(...studyByCourse.map(c => c.hours), 1);
+  const maxClassHours = Math.max(...classByCourse.map(c => c.hours), 1);
+  const maxDailyHours = Math.max(...dailyBreakdown.map(d => Math.max(d.studyHours, d.classHours)), 1);
+  const maxRollingHours = Math.max(...rollingData.map(d => d.hours), 1);
 
   if (loading) {
     return (
       <div className={`flex h-full w-full items-center justify-center min-h-[400px] ${c.bg}`}>
-        <div className={`animate-spin rounded-full h-8 w-8 border-b-2 border-[#8c5a2b]`} />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#8c5a2b]" />
       </div>
     );
   }
 
   return (
     <div className={`w-full min-h-screen ${c.bg} ${c.text}`}>
-      {/* Header */}
       <div className={`${c.cardBg} border-b ${c.divider} px-6 py-4`}>
         <div className="flex items-center justify-between max-w-[1400px] mx-auto">
           <div>
-            <h1 className={`text-2xl font-bold tracking-tight ${c.moduleText}`}>
-              📊 Analytics Dashboard
-            </h1>
-            <p className={`text-xs mt-0.5 ${c.mutedText}`}>Time tracking & productivity insights</p>
+            <h1 className={`text-2xl font-bold tracking-tight ${c.moduleText}`}>Analytics</h1>
+            <p className={`text-xs mt-0.5 ${c.mutedText}`}>Study time & class attendance</p>
           </div>
           <div className="flex gap-2">
-            <button
-              onClick={() => setTimeRange('week')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                timeRange === 'week'
-                  ? `${c.checkboxChecked} text-white`
-                  : `${c.cardBg} border ${c.moduleBorder} ${c.moduleText}`
-              }`}
-            >
-              Last 7 Days
-            </button>
-            <button
-              onClick={() => setTimeRange('month')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                timeRange === 'month'
-                  ? `${c.checkboxChecked} text-white`
-                  : `${c.cardBg} border ${c.moduleBorder} ${c.moduleText}`
-              }`}
-            >
-              Last 30 Days
-            </button>
+            {(['today', '7days', 'month', 'all'] as TimeRange[]).map((range) => (
+              <button
+                key={range}
+                onClick={() => setTimeRange(range)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  timeRange === range
+                    ? `${c.checkboxChecked} text-white`
+                    : `${c.cardBg} border ${c.moduleBorder} ${c.moduleText}`
+                }`}
+              >
+                {range === 'today' && 'Today'}
+                {range === '7days' && '7 Days'}
+                {range === 'month' && 'Month'}
+                {range === 'all' && 'All Time'}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
       <div className="max-w-[1400px] mx-auto p-6 space-y-6">
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-4 shadow-sm`}>
-            <div className="flex items-center justify-between mb-2">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-5 shadow-sm`}>
+            <div className="flex items-center gap-3 mb-2">
+              <BookOpen className={`h-5 w-5 ${c.moduleIcon}`} />
+              <span className={`text-sm font-semibold ${c.moduleText}`}>Study Hours</span>
+            </div>
+            <div className={`text-3xl font-bold ${c.moduleText}`}>
+              {(totalStudyMinutes / 60).toFixed(1)}h
+            </div>
+            <div className={`text-xs ${c.mutedText} mt-1`}>{workChunks.length} sessions</div>
+          </div>
+
+          <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-5 shadow-sm`}>
+            <div className="flex items-center gap-3 mb-2">
+              <GraduationCap className={`h-5 w-5 ${c.moduleIcon}`} />
+              <span className={`text-sm font-semibold ${c.moduleText}`}>Class Hours</span>
+            </div>
+            <div className={`text-3xl font-bold ${c.moduleText}`}>
+              {(totalClassMinutes / 60).toFixed(1)}h
+            </div>
+            <div className={`text-xs ${c.mutedText} mt-1`}>{scheduledClasses.length} classes</div>
+          </div>
+
+          <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-5 shadow-sm`}>
+            <div className="flex items-center gap-3 mb-2">
               <Clock className={`h-5 w-5 ${c.moduleIcon}`} />
-              <span className={`text-xs ${c.mutedText}`}>Total Time</span>
+              <span className={`text-sm font-semibold ${c.moduleText}`}>Average Session</span>
             </div>
-            <div className={`text-3xl font-bold ${c.moduleText}`}>{formatTime(totalMinutes)}</div>
-          </div>
-
-          <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-4 shadow-sm`}>
-            <div className="flex items-center justify-between mb-2">
-              <Activity className={`h-5 w-5 ${c.moduleIcon}`} />
-              <span className={`text-xs ${c.mutedText}`}>Work Sessions</span>
+            <div className={`text-3xl font-bold ${c.moduleText}`}>
+              {workChunks.length > 0 ? Math.round(totalStudyMinutes / workChunks.length) : 0}m
             </div>
-            <div className={`text-3xl font-bold ${c.moduleText}`}>{totalChunks}</div>
-          </div>
-
-          <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-4 shadow-sm`}>
-            <div className="flex items-center justify-between mb-2">
-              <TrendingUp className={`h-5 w-5 ${c.moduleIcon}`} />
-              <span className={`text-xs ${c.mutedText}`}>Avg Session</span>
-            </div>
-            <div className={`text-3xl font-bold ${c.moduleText}`}>{avgSessionLength}m</div>
-          </div>
-
-          <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-4 shadow-sm`}>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-2xl">
-                {mostCommonMood[0] === 'struggled' && '😫'}
-                {mostCommonMood[0] === 'okay' && '😐'}
-                {mostCommonMood[0] === 'good' && '🙂'}
-                {mostCommonMood[0] === 'great' && '😊'}
-                {mostCommonMood[0] === 'focused' && '🎯'}
-              </span>
-              <span className={`text-xs ${c.mutedText}`}>Most Common</span>
-            </div>
-            <div className={`text-lg font-bold ${c.moduleText} capitalize`}>{mostCommonMood[0]}</div>
+            <div className={`text-xs ${c.mutedText} mt-1`}>per study session</div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Week-over-Week Comparison */}
-          <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-5 shadow-sm`}>
-            <h3 className={`text-sm font-bold mb-4 ${c.moduleText} flex items-center gap-2`}>
-              <TrendingUp className={`h-4 w-4 ${c.moduleIcon}`} />
-              Weekly Study Progress
-            </h3>
-            <div className="flex items-end justify-around gap-3 h-48">
-              {weeklyStats.map((week, idx) => (
-                <div key={idx} className="flex-1 flex flex-col items-center gap-2">
-                  <div className="flex-1 w-full flex flex-col justify-end">
-                    <div className="relative w-full flex flex-col items-center">
-                      {week.hours > 0 && (
-                        <div className={`text-xs font-semibold mb-1 ${c.moduleText}`}>
-                          {week.hours.toFixed(1)}h
-                        </div>
-                      )}
-                      {idx > 0 && week.change !== 0 && (
-                        <div
-                          className={`text-[10px] font-bold mb-1 ${
-                            week.change > 0 ? 'text-green-600' : 'text-red-600'
-                          }`}
-                        >
-                          {week.change > 0 ? '+' : ''}{week.change.toFixed(0)}%
-                        </div>
-                      )}
-                      <div
-                        className={`w-full ${c.checkboxChecked} rounded-t-lg transition-all min-h-[4px]`}
-                        style={{ height: `${(week.hours / maxWeeklyHours) * 140}px` }}
-                      />
-                    </div>
-                  </div>
-                  <div className={`text-[10px] ${c.mutedText} text-center whitespace-nowrap`}>
-                    {week.label}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Course Breakdown */}
-          <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-5 shadow-sm`}>
-            <h3 className={`text-sm font-bold mb-4 ${c.moduleText} flex items-center gap-2`}>
-              <BookOpen className={`h-4 w-4 ${c.moduleIcon}`} />
-              Time by Course
-            </h3>
-            <div className="space-y-3">
-              {courseStats.slice(0, 8).map((stat) => (
-                <div key={stat.courseName}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className={`text-xs font-medium ${c.moduleText} truncate`}>{stat.courseName}</span>
-                    <span className={`text-xs font-bold ${c.moduleText}`}>{formatTime(stat.totalMinutes)}</span>
-                  </div>
-                  <div className="bg-gray-100 rounded-full h-2">
-                    <div
-                      className={`h-full ${c.checkboxChecked} rounded-full transition-all`}
-                      style={{ width: `${(stat.totalMinutes / courseStats[0].totalMinutes) * 100}%` }}
-                    />
-                  </div>
-                  <div className={`text-[10px] ${c.mutedText} mt-0.5`}>{stat.chunks} sessions</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Class Hours vs Work Hours Comparison */}
+        {/* Rolling Study Hours Chart */}
         <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-5 shadow-sm`}>
-          <h3 className={`text-sm font-bold mb-4 ${c.moduleText} flex items-center gap-2`}>
-            <BarChart3 className={`h-4 w-4 ${c.moduleIcon}`} />
-            Class Hours vs Study Hours (Last 7 Days)
-          </h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className={`text-sm font-bold ${c.moduleText} flex items-center gap-2`}>
+              <TrendingUp className={`h-4 w-4 ${c.moduleIcon}`} />
+              {timeRange === 'month' || timeRange === 'all' ? 'Weekly' : 'Daily'} Study Hours
+              {selectedCourse && ` - ${selectedCourse}`}
+            </h3>
+            {selectedCourse && (
+              <button
+                onClick={() => setSelectedCourse(null)}
+                className={`flex items-center gap-1 px-2 py-1 rounded text-xs ${c.mutedText} hover:${c.moduleText} transition-colors`}
+              >
+                <X className="h-3 w-3" />
+                Clear filter
+              </button>
+            )}
+          </div>
           <div className="flex items-end justify-around gap-2 h-56">
-            {last7DaysComparison.map((day, idx) => (
+            {rollingData.map((item, idx) => (
               <div key={idx} className="flex-1 flex flex-col items-center gap-2">
                 <div className="flex-1 w-full flex flex-col justify-end items-center">
-                  {/* Total hours label on top */}
-                  {(day.classHours > 0 || day.workHours > 0) && (
-                    <div className={`text-[10px] font-semibold mb-1 ${c.moduleText}`}>
-                      {(day.classHours + day.workHours).toFixed(1)}h
+                  {item.hours > 0 && (
+                    <div className={`text-xs font-semibold mb-1 ${c.moduleText}`}>
+                      {item.hours.toFixed(1)}h
                     </div>
                   )}
-                  {/* Stacked bars */}
-                  <div className="w-full flex flex-col items-center" style={{ width: '80%' }}>
-                    {/* Work Hours on top (Brown) */}
-                    {day.workHours > 0 && (
-                      <div
-                        className={`w-full ${c.checkboxChecked} transition-all min-h-[4px]`}
-                        style={{ height: `${(day.workHours / maxComparisonHours) * 180}px` }}
-                        title={`Study: ${day.workHours.toFixed(1)}h`}
-                      />
-                    )}
-                    {/* Class Hours on bottom (Blue) */}
-                    {day.classHours > 0 && (
-                      <div
-                        className="w-full bg-blue-500 rounded-t-lg transition-all min-h-[4px]"
-                        style={{ height: `${(day.classHours / maxComparisonHours) * 180}px` }}
-                        title={`Class: ${day.classHours.toFixed(1)}h`}
-                      />
-                    )}
-                  </div>
+                  <div
+                    className={`w-full ${c.checkboxChecked} rounded-t transition-all min-h-[4px]`}
+                    style={{ height: `${(item.hours / maxRollingHours) * 180}px` }}
+                    title={`${item.label}: ${item.hours.toFixed(1)}h`}
+                  />
                 </div>
-                <div className={`text-[10px] ${c.mutedText} text-center font-medium`}>
-                  {day.dayLabel}
+                <div className={`text-[10px] ${c.mutedText} text-center font-medium whitespace-nowrap`}>
+                  {item.label}
                 </div>
               </div>
             ))}
           </div>
-          <div className="flex items-center justify-center gap-6 mt-4 pt-3 border-t border-gray-200">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-blue-500 rounded"></div>
-              <span className={`text-xs ${c.mutedText}`}>Class Hours</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className={`w-3 h-3 ${c.checkboxChecked} rounded`}></div>
-              <span className={`text-xs ${c.mutedText}`}>Study Hours</span>
-            </div>
-          </div>
         </div>
 
-        {/* Study Hours by Course */}
         <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-5 shadow-sm`}>
           <h3 className={`text-sm font-bold mb-4 ${c.moduleText} flex items-center gap-2`}>
             <BookOpen className={`h-4 w-4 ${c.moduleIcon}`} />
             Study Hours by Course
           </h3>
-          <div className="space-y-3">
-            {courseStats.slice(0, 8).map((course, idx) => {
-              const hours = course.totalMinutes / 60;
-              const maxHours = courseStats[0]?.totalMinutes / 60 || 1;
-              return (
+          {studyByCourse.length > 0 ? (
+            <div className="space-y-3">
+              {studyByCourse.map((course) => (
                 <div
-                  key={idx}
-                  className="cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors"
-                  onClick={() => setSelectedCourse(course.courseName)}
+                  key={course.name}
+                  className={`cursor-pointer p-2 rounded-lg transition-colors ${
+                    selectedCourse === course.name ? c.moduleHeader : 'hover:bg-gray-50'
+                  }`}
+                  onClick={() => setSelectedCourse(selectedCourse === course.name ? null : course.name)}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <span className={`text-xs font-medium ${c.moduleText} truncate flex-1`}>
-                      {course.courseName}
-                    </span>
-                    <span className={`text-xs font-bold ${c.moduleIcon} ml-2`}>
-                      {hours.toFixed(1)}h
-                    </span>
+                    <span className={`text-sm font-medium ${c.moduleText}`}>{course.name}</span>
+                    <span className={`text-sm font-bold ${c.moduleIcon}`}>{course.hours.toFixed(1)}h</span>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div className="bg-gray-100 rounded-full h-2.5">
                     <div
-                      className={`${c.checkboxChecked} h-2 rounded-full transition-all`}
-                      style={{ width: `${(hours / maxHours) * 100}%` }}
+                      className={`h-full ${c.checkboxChecked} rounded-full transition-all`}
+                      style={{ width: `${(course.hours / maxStudyHours) * 100}%` }}
                     />
                   </div>
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className={`text-sm ${c.mutedText}`}>No study time recorded</p>
+          )}
         </div>
 
-        {/* Mood Distribution */}
         <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-5 shadow-sm`}>
           <h3 className={`text-sm font-bold mb-4 ${c.moduleText} flex items-center gap-2`}>
-            <BarChart3 className={`h-4 w-4 ${c.moduleIcon}`} />
-            Mood Distribution
+            <GraduationCap className={`h-4 w-4 ${c.moduleIcon}`} />
+            Class Hours by Course
           </h3>
-          <div className="grid grid-cols-5 gap-3">
-            {[
-              { key: 'struggled', emoji: '😫', label: 'Struggled', color: 'bg-red-100 border-red-300' },
-              { key: 'okay', emoji: '😐', label: 'Okay', color: 'bg-yellow-100 border-yellow-300' },
-              { key: 'good', emoji: '🙂', label: 'Good', color: 'bg-blue-100 border-blue-300' },
-              { key: 'great', emoji: '😊', label: 'Great', color: 'bg-green-100 border-green-300' },
-              { key: 'focused', emoji: '🎯', label: 'Focused', color: 'bg-purple-100 border-purple-300' },
-            ].map((mood) => (
-              <div key={mood.key} className={`${mood.color} border-2 rounded-lg p-3 text-center`}>
-                <div className="text-3xl mb-1">{mood.emoji}</div>
-                <div className={`text-2xl font-bold ${c.moduleText}`}>
-                  {moodStats[mood.key as keyof typeof moodStats]}
+          {classByCourse.length > 0 ? (
+            <div className="space-y-3">
+              {classByCourse.map((course) => (
+                <div key={course.name}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className={`text-sm font-medium ${c.moduleText}`}>{course.name}</span>
+                    <span className={`text-sm font-bold ${c.moduleIcon}`}>{course.hours.toFixed(1)}h</span>
+                  </div>
+                  <div className="bg-gray-100 rounded-full h-2.5">
+                    <div
+                      className="h-full bg-blue-500 rounded-full transition-all"
+                      style={{ width: `${(course.hours / maxClassHours) * 100}%` }}
+                    />
+                  </div>
                 </div>
-                <div className={`text-xs ${c.mutedText}`}>{mood.label}</div>
+              ))}
+            </div>
+          ) : (
+            <p className={`text-sm ${c.mutedText}`}>No classes scheduled</p>
+          )}
+        </div>
+
+        {timeRange !== 'all' && (
+          <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-5 shadow-sm`}>
+            <h3 className={`text-sm font-bold mb-4 ${c.moduleText} flex items-center gap-2`}>
+              <Calendar className={`h-4 w-4 ${c.moduleIcon}`} />
+              Daily Breakdown
+            </h3>
+            <div className="flex items-end justify-around gap-2 h-56 mb-4">
+              {dailyBreakdown.map((day, idx) => {
+                const date = new Date(day.date);
+                const dayLabel = timeRange === 'today' ? 'Today' : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                return (
+                  <div key={idx} className="flex-1 flex flex-col items-center gap-2 max-w-[60px]">
+                    <div className="flex-1 w-full flex flex-col justify-end items-center gap-1">
+                      {day.studyHours > 0 && (
+                        <div className={`w-full ${c.checkboxChecked} rounded-t transition-all min-h-[4px]`}
+                          style={{ height: `${(day.studyHours / maxDailyHours) * 180}px` }}
+                          title={`Study: ${day.studyHours.toFixed(1)}h`} />
+                      )}
+                      {day.classHours > 0 && (
+                        <div className="w-full bg-blue-500 rounded-t transition-all min-h-[4px]"
+                          style={{ height: `${(day.classHours / maxDailyHours) * 180}px` }}
+                          title={`Class: ${day.classHours.toFixed(1)}h`} />
+                      )}
+                    </div>
+                    <div className={`text-[10px] ${c.mutedText} text-center font-medium`}>{dayLabel}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-center gap-6 pt-3 border-t border-gray-200">
+              <div className="flex items-center gap-2">
+                <div className={`w-3 h-3 ${c.checkboxChecked} rounded`}></div>
+                <span className={`text-xs ${c.mutedText}`}>Study</span>
               </div>
-            ))}
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-blue-500 rounded"></div>
+                <span className={`text-xs ${c.mutedText}`}>Class</span>
+              </div>
+            </div>
           </div>
+        )}
+
+        <div className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-5 shadow-sm`}>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className={`text-sm font-bold ${c.moduleText} flex items-center gap-2`}>
+              <Clock className={`h-4 w-4 ${c.moduleIcon}`} />
+              Study Sessions
+            </h3>
+            <div className="flex gap-2">
+              <select
+                value={chunkFilterCourse || ''}
+                onChange={(e) => setChunkFilterCourse(e.target.value || null)}
+                className={`px-2 py-1 rounded text-xs border ${c.moduleBorder} ${c.moduleText} bg-white`}
+              >
+                <option value="">All Courses</option>
+                {studyByCourse.map(c => (
+                  <option key={c.name} value={c.name}>{c.name}</option>
+                ))}
+              </select>
+              <select
+                value={chunkFilterMood || ''}
+                onChange={(e) => setChunkFilterMood(e.target.value || null)}
+                className={`px-2 py-1 rounded text-xs border ${c.moduleBorder} ${c.moduleText} bg-white`}
+              >
+                <option value="">All Moods</option>
+                <option value="struggled">😫 Struggled</option>
+                <option value="okay">😐 Okay</option>
+                <option value="good">🙂 Good</option>
+                <option value="great">😊 Great</option>
+                <option value="focused">🎯 Focused</option>
+              </select>
+            </div>
+          </div>
+          {workChunks.length > 0 ? (
+            <div className="space-y-2">
+              {workChunks
+                .filter(chunk => !chunkFilterCourse || chunk.course_name === chunkFilterCourse)
+                .filter(chunk => !chunkFilterMood || chunk.mood === chunkFilterMood)
+                .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                .map((chunk) => {
+                  const date = new Date(chunk.created_at);
+                  const minutes = getChunkMinutes(chunk);
+                  return (
+                    <div key={chunk.id} className={`border ${c.moduleBorder} rounded-lg p-3 hover:${c.moduleHeader} transition-colors`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-sm font-semibold ${c.moduleText}`}>{chunk.course_name || 'General'}</span>
+                            {chunk.mood && (
+                              <span className="text-sm">
+                                {chunk.mood === 'struggled' && '😫'}
+                                {chunk.mood === 'okay' && '😐'}
+                                {chunk.mood === 'good' && '🙂'}
+                                {chunk.mood === 'great' && '😊'}
+                                {chunk.mood === 'focused' && '🎯'}
+                              </span>
+                            )}
+                          </div>
+                          {chunk.activity_title && <div className={`text-xs ${c.mutedText} mb-1`}>{chunk.activity_title}</div>}
+                          {chunk.notes && <div className={`text-xs ${c.moduleText} mt-2 italic`}>{chunk.notes}</div>}
+                        </div>
+                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                          <span className={`text-sm font-bold ${c.moduleIcon}`}>{formatTime(minutes)}</span>
+                          <span className={`text-xs ${c.mutedText}`}>{date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                          <span className={`text-xs ${c.mutedText}`}>{date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          ) : (
+            <p className={`text-sm ${c.mutedText}`}>No study sessions recorded</p>
+          )}
         </div>
       </div>
-
-      {/* Course History Modal */}
-      {selectedCourse && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-          onClick={() => setSelectedCourse(null)}
-        >
-          <div
-            className={`${c.cardBg} border ${c.moduleBorder} rounded-xl p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-6">
-              <h2 className={`text-lg font-bold ${c.moduleText}`}>
-                {selectedCourse} - Study History
-              </h2>
-              <button
-                onClick={() => setSelectedCourse(null)}
-                className={`text-xl ${c.mutedText} hover:${c.moduleText}`}
-              >
-                ×
-              </button>
-            </div>
-
-            {(() => {
-              // Get all work chunks for this course
-              const courseChunks = workChunks.filter(
-                (chunk) => chunk.course_name === selectedCourse
-              );
-
-              // Group by week for last 8 weeks
-              const weeklyData = [];
-              const now = new Date();
-              for (let i = 0; i < 8; i++) {
-                const weekEnd = new Date(now);
-                weekEnd.setDate(weekEnd.getDate() - i * 7);
-                const weekStart = new Date(weekEnd);
-                weekStart.setDate(weekStart.getDate() - 6);
-
-                const weekChunks = courseChunks.filter((chunk) => {
-                  const chunkDate = new Date(chunk.created_at);
-                  return chunkDate >= weekStart && chunkDate <= weekEnd;
-                });
-
-                const totalMinutes = weekChunks.reduce(
-                  (sum, chunk) => sum + getChunkMinutes(chunk),
-                  0
-                );
-
-                weeklyData.unshift({
-                  label: `${weekStart.getMonth() + 1}/${weekStart.getDate()}`,
-                  hours: totalMinutes / 60,
-                  sessions: weekChunks.length,
-                });
-              }
-
-              const maxWeekHours = Math.max(...weeklyData.map((w) => w.hours), 1);
-
-              return (
-                <div>
-                  <div className="flex items-end justify-around gap-2 h-64 mb-6">
-                    {weeklyData.map((week, idx) => (
-                      <div key={idx} className="flex-1 flex flex-col items-center gap-2">
-                        <div className="flex-1 w-full flex flex-col justify-end items-center">
-                          {week.hours > 0 && (
-                            <div className={`text-xs font-semibold mb-1 ${c.moduleText}`}>
-                              {week.hours.toFixed(1)}h
-                            </div>
-                          )}
-                          <div
-                            className={`w-full ${c.checkboxChecked} rounded-t-lg transition-all min-h-[4px]`}
-                            style={{ width: '80%', height: `${(week.hours / maxWeekHours) * 200}px` }}
-                          />
-                        </div>
-                        <div className={`text-[10px] ${c.mutedText} text-center`}>
-                          {week.label}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-4 mb-4">
-                    <div className={`${c.moduleHeader} rounded-lg p-3 text-center`}>
-                      <div className={`text-xs ${c.mutedText} mb-1`}>Total Hours</div>
-                      <div className={`text-xl font-bold ${c.moduleText}`}>
-                        {(courseChunks.reduce((sum, c) => sum + getChunkMinutes(c), 0) / 60).toFixed(1)}
-                      </div>
-                    </div>
-                    <div className={`${c.moduleHeader} rounded-lg p-3 text-center`}>
-                      <div className={`text-xs ${c.mutedText} mb-1`}>Study Sessions</div>
-                      <div className={`text-xl font-bold ${c.moduleText}`}>{courseChunks.length}</div>
-                    </div>
-                    <div className={`${c.moduleHeader} rounded-lg p-3 text-center`}>
-                      <div className={`text-xs ${c.mutedText} mb-1`}>Avg Session</div>
-                      <div className={`text-xl font-bold ${c.moduleText}`}>
-                        {courseChunks.length > 0
-                          ? Math.round(
-                              courseChunks.reduce((sum, c) => sum + getChunkMinutes(c), 0) /
-                                courseChunks.length
-                            )
-                          : 0}
-                        m
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
