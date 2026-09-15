@@ -548,11 +548,38 @@ function resolveDuplicateAssignments(
       continue;
     }
 
-    // Find the highest-priority occurrence
-    let bestOccurrence = occurrences[0];
+    // Check if ALL occurrences were marked as non-actionable (e.g., by exclusion patterns)
+    // If so, respect that decision and don't override
+    const allOccurrenceRecords = assignmentSyncRecords.filter(record =>
+      occurrences.some(occ => occ.itemLmsId === record.lms_id)
+    );
+    const allNonActionable = allOccurrenceRecords.every(record => !record.is_action_sync);
+
+    if (allNonActionable) {
+      // All occurrences excluded by patterns - skip priority logic
+      continue;
+    }
+
+    // Filter out occurrences from non-week modules (Introduction, Week 0, etc.)
+    // Only consider occurrences in modules matching "Week 1", "Week 2", etc.
+    const weekPattern = /week\s+[1-9]\d*/i;
+    const weekOccurrences = occurrences.filter(occ => weekPattern.test(occ.moduleTitle));
+
+    // If no week occurrences found, mark all as non-actionable
+    if (weekOccurrences.length === 0) {
+      for (const record of assignmentSyncRecords) {
+        if (occurrences.some(occ => occ.itemLmsId === record.lms_id)) {
+          record.is_action_sync = false;
+        }
+      }
+      continue;
+    }
+
+    // Find the highest-priority occurrence (only among week modules)
+    let bestOccurrence = weekOccurrences[0];
     let bestPriority = getWorkgroupPriority(bestOccurrence.workgroupTitle);
 
-    for (const occurrence of occurrences) {
+    for (const occurrence of weekOccurrences) {
       const priority = getWorkgroupPriority(occurrence.workgroupTitle);
 
       if (priority > bestPriority) {
