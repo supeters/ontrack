@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
-import { Plus, GripVertical, Trash2, ChevronRight, ChevronDown, Calendar } from 'lucide-react';
+import { Plus, GripVertical, Trash2, ChevronRight, ChevronDown, Calendar, ClipboardPaste, X } from 'lucide-react';
 
 interface CourseActivityEditorProps {
   courseId: number;
@@ -39,6 +39,11 @@ export default function CourseActivityEditor({ courseId, kidId, onUpdate }: Cour
   const [newActivityType, setNewActivityType] = useState('assignment');
   const [newActivityUrl, setNewActivityUrl] = useState('');
   const [newActivityEstimatedMinutes, setNewActivityEstimatedMinutes] = useState('');
+
+  // Bulk import states
+  const [showBulkImport, setShowBulkImport] = useState(false);
+  const [bulkImportText, setBulkImportText] = useState('');
+  const [bulkImportModuleId, setBulkImportModuleId] = useState<number | null>(null);
 
   const loadActivities = async () => {
     try {
@@ -224,6 +229,62 @@ export default function CourseActivityEditor({ courseId, kidId, onUpdate }: Cour
     }
   };
 
+  const handleBulkImport = async () => {
+    if (!bulkImportText.trim() || !bulkImportModuleId) return;
+
+    try {
+      const lines = bulkImportText.trim().split('\n');
+      const module = modules.find(m => m.id === bulkImportModuleId);
+      let position = module?.children?.length || 0;
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+
+        // Support formats:
+        // 1. Simple: "Title"
+        // 2. Tab-separated: "Title\tURL"
+        // 3. Tab-separated: "Title\tURL\tDate"
+        // 4. Tab-separated: "Title\tURL\tDate\tMinutes"
+        // 5. Tab-separated: "Title\tURL\tDate\tMinutes\tType"
+        const parts = line.split('\t');
+        const title = parts[0]?.trim();
+        const url = parts[1]?.trim() || null;
+        const date = parts[2]?.trim() || null;
+        const minutes = parts[3]?.trim() ? parseInt(parts[3].trim()) : null;
+        const type = parts[4]?.trim() || 'file';
+
+        if (!title) continue;
+
+        await fetch('/api/activities', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            courseId,
+            kidId,
+            title,
+            activityType: type,
+            parentActivityId: bulkImportModuleId,
+            moduleId: bulkImportModuleId,
+            position: position++,
+            planDate: date,
+            resourceUrl: url,
+            estimatedMinutes: minutes,
+            isActionable: true
+          }),
+        });
+      }
+
+      // Clear and refresh
+      setBulkImportText('');
+      setShowBulkImport(false);
+      setBulkImportModuleId(null);
+      await loadActivities();
+    } catch (error) {
+      console.error('Error bulk importing:', error);
+      alert('Error importing activities. Check console for details.');
+    }
+  };
+
   if (loading) {
     return (
       <div className={`flex items-center justify-center py-12 ${c.text}`}>
@@ -234,15 +295,83 @@ export default function CourseActivityEditor({ courseId, kidId, onUpdate }: Cour
 
   return (
     <div className={`${c.bg} ${c.text} space-y-4`}>
+      {/* Bulk Import Section */}
+      {showBulkImport && (
+        <div className={`${c.cardBg} border ${c.moduleBorder} rounded-lg p-4`}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className={`text-sm font-bold ${c.moduleText}`}>Bulk Import Activities</h3>
+            <button
+              onClick={() => {
+                setShowBulkImport(false);
+                setBulkImportText('');
+                setBulkImportModuleId(null);
+              }}
+              className={`text-sm ${c.mutedText} hover:${c.moduleText}`}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="space-y-3">
+            <select
+              value={bulkImportModuleId || ''}
+              onChange={(e) => setBulkImportModuleId(Number(e.target.value))}
+              className={`w-full px-3 py-2 text-sm border ${c.moduleBorder} rounded-lg ${c.moduleText}`}
+            >
+              <option value="">Select a module...</option>
+              {modules.map((m) => (
+                <option key={m.id} value={m.id}>{m.title}</option>
+              ))}
+            </select>
+            <textarea
+              value={bulkImportText}
+              onChange={(e) => setBulkImportText(e.target.value)}
+              placeholder="Paste activities here (one per line)&#10;&#10;Formats supported:&#10;• Title&#10;• Title[TAB]URL&#10;• Title[TAB]URL[TAB]Date(YYYY-MM-DD)&#10;• Title[TAB]URL[TAB]Date[TAB]Minutes&#10;• Title[TAB]URL[TAB]Date[TAB]Minutes[TAB]Type&#10;&#10;Example:&#10;Unit 2C Pacing Guide[TAB]https://www.physics-prep.com/.../Unit_2C_Pacing_Guide_2026-27.pdf"
+              rows={8}
+              className={`w-full px-3 py-2 text-sm border ${c.moduleBorder} rounded-lg ${c.moduleText} font-mono`}
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => {
+                  setShowBulkImport(false);
+                  setBulkImportText('');
+                  setBulkImportModuleId(null);
+                }}
+                className={`px-4 py-2 border ${c.moduleBorder} rounded-lg hover:bg-stone-100 text-sm`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBulkImport}
+                disabled={!bulkImportText.trim() || !bulkImportModuleId}
+                className={`px-4 py-2 ${c.checkboxChecked} text-white rounded-lg hover:opacity-90 text-sm font-medium disabled:opacity-30 disabled:cursor-not-allowed`}
+              >
+                Import Activities
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add Module Section */}
       <div className={`${c.cardBg} border ${c.moduleBorder} rounded-lg p-4`}>
-        <h3 className={`text-sm font-bold ${c.moduleText} mb-3`}>Add Module</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className={`text-sm font-bold ${c.moduleText}`}>Add Module</h3>
+          {!showBulkImport && (
+            <button
+              onClick={() => setShowBulkImport(true)}
+              className={`flex items-center gap-2 px-3 py-1.5 text-sm ${c.mutedText} hover:${c.moduleText} border ${c.moduleBorder} rounded-lg hover:bg-stone-50 transition-colors`}
+            >
+              <ClipboardPaste className="h-4 w-4" />
+              Bulk Import
+            </button>
+          )}
+        </div>
         <div className="flex gap-2">
           <input
             type="text"
             value={newModuleTitle}
             onChange={(e) => setNewModuleTitle(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleAddModule()}
+            onKeyDown={(e) => e.key === 'Enter' && handleAddModule()}
             placeholder="Module title..."
             className={`flex-1 px-3 py-2 text-sm border ${c.moduleBorder} rounded-lg ${c.moduleText}`}
           />
@@ -388,7 +517,7 @@ export default function CourseActivityEditor({ courseId, kidId, onUpdate }: Cour
                             setSelectedModuleId(module.id);
                             setNewActivityTitle(e.target.value);
                           }}
-                          onKeyPress={(e) => {
+                          onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               setSelectedModuleId(module.id);
                               handleAddActivity();
